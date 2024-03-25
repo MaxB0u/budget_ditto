@@ -8,44 +8,55 @@ use std::sync::{Arc, Mutex};
 mod queues;
 pub use crate::queues::priority_queue;
 pub use crate::queues::round_robin;
+use std::thread;
+//use pcap::Device;
+use std::sync::MutexGuard;
 
 mod pattern;
 
 struct ChannelCustom {
-    interface: datalink::NetworkInterface,
     tx: Box<dyn datalink::DataLinkSender>,
     rx: Box<dyn datalink::DataLinkReceiver>,
 }
 
-pub fn run(rx_interface: &str, tx_interface: &str) -> Result<(), Box<dyn Error>> {
-    // Test priority queues
-    priority_queue::try_priority_queue();
+pub fn run(rx_interface: String, tx_interface: String) -> Result<(), Box<dyn Error>> {
     
-    let mut ch_rx = match get_channel(rx_interface) {
-        Ok(rx) => rx,
-        Err(error) => panic!("Error getting channel: {error}"),
-    };
-
-    let mut ch_tx = match get_channel(tx_interface) {
-        Ok(tx) => tx,
-        Err(error) => panic!("Error getting channel: {error}"),
-    };
+    // let devices = Device::list()?;
+    // for device in &devices {
+    //     println!("Device: {}", device.name);
+    // }
 
     println!("Setting up queues for pattern {:?}", pattern::PATTERN);
     let rrs = Arc::new(Mutex::new(round_robin::RoundRobinScheduler::new(pattern::PATTERN[0])));
 
+    let tx_queue = Arc::clone(&rrs);
+    let rx_queue = Arc::clone(&rrs);
+
     println!("Listening for Ethernet frames on interface {}...", rx_interface);
     println!("Sending Ethernet frames on interface {}...", tx_interface);
 
-    // Should start a thread for rx and one for send
-    try_receive(&mut ch_rx.rx);
+    // Spawn thread for receiving packets
+    let recv_handle = thread::spawn(move || {
+        receive(&rx_interface, rx_queue);
+    });
 
-    transmit(&mut ch_tx.tx, &rrs);
-    receive(&mut ch_rx.rx, &rrs);
+    // Spawn thread for sending packets
+    let send_handle = thread::spawn(move || {
+        transmit(&tx_interface, tx_queue);
+    });
+
+    // Wait for both threads to finish
+    recv_handle.join().expect("Receiving thread panicked");
+    send_handle.join().expect("Sending thread panicked");
+
+    // Should start a thread for rx and one for send
+    // try_receive(&mut ch_rx.rx);
+
+    // transmit(&mut ch_tx.tx, &rrs);
+    // receive(&mut ch_rx.rx, &rrs);
 
     Ok(())
 }
-
 fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
     // Retrieve the network interface
     let interfaces = datalink::interfaces();
@@ -63,8 +74,7 @@ fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
         Err(e) => panic!("Failed to create channel {e}"),
     };
 
-    let ch = ChannelCustom{
-        interface, 
+    let ch = ChannelCustom{ 
         tx, 
         rx,
     };
@@ -72,12 +82,17 @@ fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
     Ok(ch)
 }
 
-fn transmit(tx: &mut Box<dyn datalink::DataLinkSender>, rrs: &Arc<Mutex<round_robin::RoundRobinScheduler>>) {
+fn transmit(tx_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinScheduler>>) {
+    let mut ch_tx = match get_channel(tx_interface) {
+        Ok(tx) => tx,
+        Err(error) => panic!("Error getting channel: {error}"),
+    };
+
 
     // Send Ethernet frames
     loop {
         let mut scheduler = rrs.lock().unwrap();
-        match tx.send_to(scheduler.pop(), None) {
+        match ch_tx.tx.send_to(scheduler.pop(), None) {
             Some(res) => {
                 
                 match res {
@@ -92,12 +107,20 @@ fn transmit(tx: &mut Box<dyn datalink::DataLinkSender>, rrs: &Arc<Mutex<round_ro
     }
 }
 
-fn receive<'a, 'b>(rx: &'a mut Box<dyn datalink::DataLinkReceiver>, rrs: &'b Arc<Mutex<round_robin::RoundRobinScheduler<'b>>>) 
+fn receive<'a, 'b>(rx_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinScheduler<'b>>>) 
 where 'a: 'b {
+    let mut ch_rx = match get_channel(rx_interface) {
+        Ok(rx) => rx,
+        Err(error) => panic!("Error getting channel: {error}"),
+    };
+
     // Process received Ethernet frames
     loop {
-        match rx.next() {
-            Ok(packet) => process_packet(packet, rrs),
+        let mut scheduler = rrs.lock().unwrap();
+        match ch_rx.rx.next() {
+            // unsafe { process_packet(std::slice::from_raw_parts(packet.as_ptr(), packet.len()), &mut scheduler) },
+            // process_packet(packet, &mut scheduler),
+            Ok(packet) =>  unsafe { process_packet(std::slice::from_raw_parts(packet.as_ptr(), packet.len()), &mut scheduler) },
             Err(e) => {
                 eprintln!("Error receiving frame: {}", e);
                 continue;
@@ -106,11 +129,10 @@ where 'a: 'b {
     }
 }
 
-fn process_packet<'a, 'b>(packet: &'a [u8], rrs: &'b Arc<Mutex<round_robin::RoundRobinScheduler<'b>>>) 
+fn process_packet<'a, 'b>(packet: &'a [u8], scheduler: &mut MutexGuard<'_, round_robin::RoundRobinScheduler<'b>>) 
 where 'a: 'b {
     let eth_packet = EthernetPacket::new(packet).unwrap();
     if eth_packet.get_source() == MacAddr::new(2,0,0,0,0,0){
-        let mut scheduler = rrs.lock().unwrap();
         scheduler.push(packet);
     }
 }

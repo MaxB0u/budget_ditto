@@ -85,15 +85,19 @@ impl<'a> PriorityQueue<'a> {
 }
 
 pub fn pad(data: &[u8], target_length: usize) -> &[u8] {
-    // Calculate the number of zeros needed for padding
-    let num_zeros = target_length - data.len();
+    // // Calculate the number of zeros needed for padding
+    // let num_zeros = target_length - data.len();
 
-    let data_len = data.len();
-    let data_ptr = data.as_ptr() as *mut i32;
-    unsafe {
-        std::ptr::write_bytes(data_ptr.add(data_len), 0, num_zeros);
-    }
+    // let data_len = data.len();
+    // let data_ptr = data.as_ptr() as *mut i32;
+    // unsafe {
+    //     std::ptr::write_bytes(data_ptr.add(data_len), 0, num_zeros);
+    // }
 
+    // data
+
+    // Unefficient, copies data to a vector
+    data.to_vec().resize(target_length , 0);
     data
 }
 
