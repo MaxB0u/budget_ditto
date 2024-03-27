@@ -1,10 +1,8 @@
-use std::env;
-
 use budget_ditto::Interfaces;
 
 fn main() {
     // Get the name of the network interface from the command-line arguments
-    let mut args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
 
     // Check if at least four arguments are provided
     if args.len() < 5 {

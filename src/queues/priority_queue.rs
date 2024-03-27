@@ -89,8 +89,8 @@ impl PriorityQueue {
     pub fn pop(&mut self) -> Vec<u8> {
        let packet = match self.queue.pop_front() {
            Some(pkt) => {
-            println!("Transmit real packet length {} with first byte after addresses {}", pkt.len(), pkt[12]);
-            assert_ne!(pkt[12], 0_u8); // Make sure first byte after addresses is not 0 or else will be seen as chaff
+            //println!("Transmit real packet length {} with first byte after addresses {}", pkt.len(), pkt[12]);
+            //assert_ne!(pkt[12], 0_u8); // Make sure first byte after addresses is not 0 or else will be seen as chaff
             pkt
            },
            None => {

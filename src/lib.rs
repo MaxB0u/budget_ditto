@@ -2,24 +2,20 @@ mod pattern;
 mod deobfuscate;
 mod queues;
 
+use crate::queues::round_robin;
 use pnet::datalink;
 use pnet::datalink::Channel::Ethernet;
-//use std::collections::BinaryHeap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-pub use crate::queues::priority_queue;
-pub use crate::queues::round_robin;
 use std::thread;
-//use pcap::Device;
-//use std::sync::MutexGuard;
 use std::time::{Duration, Instant};
 
 // Rate is Packet/s * Bytes/packet
-const PACKETS_PER_SECOND: f64 = 1.0;//1e1; // -> 100micros between packets
+const PACKETS_PER_SECOND: f64 = 1e4;//1e1; // -> 100micros between packets
 
-struct ChannelCustom {
-    tx: Box<dyn datalink::DataLinkSender>,
-    rx: Box<dyn datalink::DataLinkReceiver>,
+pub struct ChannelCustom {
+    pub tx: Box<dyn datalink::DataLinkSender>,
+    pub rx: Box<dyn datalink::DataLinkReceiver>,
 }
 
 pub struct Interfaces {
@@ -67,15 +63,10 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
     send_handle.join().expect("Sending thread panicked");
     deobf_handle.join().expect("Deobfuscating thread panicked");
 
-    // Should start a thread for rx and one for send
-    // try_receive(&mut ch_rx.rx);
-
-    // transmit(&mut ch_tx.tx, &rrs);
-    // receive(&mut ch_rx.rx, &rrs);
-
     Ok(())
 }
-fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
+
+pub fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
     // Retrieve the network interface
     let interfaces = datalink::interfaces();
     let interface = match interfaces
@@ -108,6 +99,7 @@ fn transmit(obf_output_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinSc
 
     // Keep track of time
     let interval = Duration::from_micros((1e6/PACKETS_PER_SECOND) as u64);
+    //let interval = Duration::from_nanos(100);
     let mut last_iteration_time = Instant::now();
 
     // Send Ethernet frames
@@ -149,8 +141,7 @@ where 'a: 'b {
     };
 
     // Process received Ethernet frames
-    loop {
-        
+    loop { 
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
@@ -186,7 +177,7 @@ fn deobfuscate(obf_input_interface: &str, output_interface: &str) {
                 match deobfuscate::process_packet(packet) {
                     // Real packets
                     Some(packet) => {
-                        println!("Deobfuscated packet with length = {}", packet.len());
+                        //println!("Deobfuscated packet with length = {}", packet.len());
                         ch_tx.tx.send_to(&packet, None);
                     }, 
                     // Chaff
@@ -200,4 +191,5 @@ fn deobfuscate(obf_input_interface: &str, output_interface: &str) {
         };
     }
 }
+
 
