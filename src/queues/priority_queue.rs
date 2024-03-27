@@ -2,12 +2,21 @@
 use std::collections::BinaryHeap;
 use std::cmp::Reverse;
 use std::cmp::Ordering;
-
+// use pnet::packet::ipv4::MutableIpv4Packet;
+// use pnet::packet::ip::IpNextHeaderProtocols;
+use pnet::packet::Packet;
+use std::collections::VecDeque;
 use crate::pattern;
+use pnet::packet::ethernet;
+use pnet::util::MacAddr;
 
 // Higher priority served first
 const PRIORITY_CHAFF: i32 = 1;
 const PRIORITY_REAL: i32 = 2;
+
+// const IP_HEADER_LENGTH: usize = 20;
+// const IP_VERSION: u8 = 4;
+// const IP_PROTOCOL_IP_IN_IP: u8 = 4;
 
 // Each packet has a priority and a reference to its data
 #[derive(Debug)]
@@ -59,46 +68,83 @@ pub fn try_priority_queue() {
     }
 }
 
-pub struct PriorityQueue<'a> {
+pub struct PriorityQueue {
     // Might be more efficient to hard code a queue length in an array
-    pub queue: Vec<&'a[u8]>,
+    pub queue: VecDeque<Vec<u8>>,
     pub length: usize,
 }
 
-impl<'a> PriorityQueue<'a> {
+impl PriorityQueue {
     pub fn new(length: usize) -> Self{
-        PriorityQueue{queue: Vec::new(), length}
+        PriorityQueue{queue: VecDeque::new(), length}
     }
 
-    pub fn push(&mut self, packet: &'a[u8]) {
+    pub fn push(&mut self, packet: Vec<u8>) {
         // Pad when you push to be more efficient when you pop
-        self.queue.push(pad(packet, self.length),);
+        let padded_data = pad(packet, self.length);
+        self.queue.push_back(padded_data);
+        //println!("Queue length {}", self.queue.len());
     }
 
-    pub fn pop(&mut self) -> &'a [u8] {
-       let packet = match self.queue.pop() {
-           Some(pkt) => pkt,
-           None => &pattern::CHAFF[0..self.length],
+    pub fn pop(&mut self) -> Vec<u8> {
+       let packet = match self.queue.pop_front() {
+           Some(pkt) => {
+            println!("Transmit real packet length {} with first byte after addresses {}", pkt.len(), pkt[12]);
+            assert_ne!(pkt[12], 0_u8); // Make sure first byte after addresses is not 0 or else will be seen as chaff
+            pkt
+           },
+           None => {
+            pattern::CHAFF[..self.length].to_vec()
+           }
        };
+       //pad_and_wrap_ipv4(packet, self.length)
        packet
     }
 }
 
-pub fn pad(data: &[u8], target_length: usize) -> &[u8] {
-    // // Calculate the number of zeros needed for padding
-    // let num_zeros = target_length - data.len();
-
-    // let data_len = data.len();
-    // let data_ptr = data.as_ptr() as *mut i32;
-    // unsafe {
-    //     std::ptr::write_bytes(data_ptr.add(data_len), 0, num_zeros);
-    // }
-
-    // data
-
+fn pad(data: Vec<u8>, target_length: usize) -> Vec<u8> {
     // Unefficient, copies data to a vector
-    data.to_vec().resize(target_length , 0);
-    data
+    let initial_len = data.len();
+    let mut padded_data = data;
+
+    let mut eth_packet = ethernet::MutableEthernetPacket::new(&mut padded_data).unwrap();
+    // Encode length without padding in src mac address (in little endian)
+    eth_packet.set_source(MacAddr::new(0_u8,0_u8,0_u8,0_u8, (initial_len & 0xFF) as u8, ((initial_len >> 8) & 0xFF) as u8));
+    padded_data = eth_packet.packet().to_vec();
+    
+    padded_data.resize(target_length, 0);
+
+    //println!("Padded length {}", padded_data.len());
+    padded_data
 }
 
+
+// fn pad_and_wrap_ipv4(data: Vec<u8>, target_length: usize) -> Vec<u8> {
+//     let initial_len = data.len();
+//     let mut data = data;
+
+//     let mut eth_packet = ethernet::MutableEthernetPacket::new(&mut data).unwrap();
+//     // Encode length without padding in src mac address
+//     eth_packet.set_source(MacAddr::new(0_u8,0_u8,0_u8,0_u8, ((initial_len >> 8) & 0xFF) as u8, (initial_len & 0xFF) as u8));
+//     data = eth_packet.packet().to_vec();
+    
+//     data.resize(target_length + IP_HEADER_LENGTH, 0);
+//     data.rotate_right(IP_HEADER_LENGTH);
+//     let mut packet = MutableIpv4Packet::new(&mut data).unwrap();
+
+//     // Set the IP header fields
+//     packet.set_version(IP_VERSION);
+//     packet.set_header_length((IP_HEADER_LENGTH/4) as u8);
+//     packet.set_total_length(((initial_len + IP_HEADER_LENGTH)) as u16); // Set the total length of the packet
+//     //packet.set_identification(1234);
+//     packet.set_ttl(64);
+//     packet.set_next_level_protocol(IpNextHeaderProtocols::Tcp); // Assuming TCP protocol
+//     packet.set_source([192, 168, 1, 1].into());
+//     packet.set_destination([192, 168, 1, 2].into());
+
+//     // Calculate the checksum for the IP header
+//     packet.set_checksum(pnet::packet::ipv4::checksum(&packet.to_immutable()));
+    
+//     packet.packet().to_vec()
+// }
 

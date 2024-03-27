@@ -1,25 +1,35 @@
+mod pattern;
+mod deobfuscate;
+mod queues;
+
 use pnet::datalink;
 use pnet::datalink::Channel::Ethernet;
-use pnet::packet::ethernet::EthernetPacket;
-use pnet::util::MacAddr;
 //use std::collections::BinaryHeap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-mod queues;
 pub use crate::queues::priority_queue;
 pub use crate::queues::round_robin;
 use std::thread;
 //use pcap::Device;
-use std::sync::MutexGuard;
+//use std::sync::MutexGuard;
+use std::time::{Duration, Instant};
 
-mod pattern;
+// Rate is Packet/s * Bytes/packet
+const PACKETS_PER_SECOND: f64 = 1.0;//1e1; // -> 100micros between packets
 
 struct ChannelCustom {
     tx: Box<dyn datalink::DataLinkSender>,
     rx: Box<dyn datalink::DataLinkReceiver>,
 }
 
-pub fn run(rx_interface: String, tx_interface: String) -> Result<(), Box<dyn Error>> {
+pub struct Interfaces {
+    pub input: String,
+    pub obfuscated_output: String,
+    pub obfuscated_input: String,
+    pub output: String,
+}
+
+pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
     
     // let devices = Device::list()?;
     // for device in &devices {
@@ -27,27 +37,35 @@ pub fn run(rx_interface: String, tx_interface: String) -> Result<(), Box<dyn Err
     // }
 
     println!("Setting up queues for pattern {:?}", pattern::PATTERN);
-    let rrs = Arc::new(Mutex::new(round_robin::RoundRobinScheduler::new(pattern::PATTERN[0])));
+    let rrs = Arc::new(Mutex::new(round_robin::RoundRobinScheduler::new(pattern::PATTERN.len())));
 
     let tx_queue = Arc::clone(&rrs);
     let rx_queue = Arc::clone(&rrs);
 
-    println!("Listening for Ethernet frames on interface {}...", rx_interface);
-    println!("Sending Ethernet frames on interface {}...", tx_interface);
+    println!("Listening for Ethernet frames on interface {}...", interfaces.input);
+    println!("Sending obfuscated Ethernet frames on interface {}...", interfaces.obfuscated_output);
+    println!("Listening for obfuscated Ethernet frames on interface {}...", interfaces.obfuscated_input);
+    println!("Sending deobfuscated Ethernet frames on interface {}...", interfaces.output);
 
-    // Spawn thread for receiving packets
-    let recv_handle = thread::spawn(move || {
-        receive(&rx_interface, rx_queue);
+    // Spawn thread for obfuscating packets
+    let obf_handle = thread::spawn(move || {
+        obfuscate(&interfaces.input, rx_queue);
     });
 
-    // Spawn thread for sending packets
+    // Spawn thread for sending obfuscated packets
     let send_handle = thread::spawn(move || {
-        transmit(&tx_interface, tx_queue);
+        transmit(&interfaces.obfuscated_output, tx_queue);
+    });
+
+    // Spawn thread for sending deobfuscating and forwarding packets
+    let deobf_handle = thread::spawn(move || {
+        deobfuscate(&interfaces.obfuscated_input, &interfaces.output);
     });
 
     // Wait for both threads to finish
-    recv_handle.join().expect("Receiving thread panicked");
+    obf_handle.join().expect("Obfuscating thread panicked");
     send_handle.join().expect("Sending thread panicked");
+    deobf_handle.join().expect("Deobfuscating thread panicked");
 
     // Should start a thread for rx and one for send
     // try_receive(&mut ch_rx.rx);
@@ -82,19 +100,24 @@ fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
     Ok(ch)
 }
 
-fn transmit(tx_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinScheduler>>) {
-    let mut ch_tx = match get_channel(tx_interface) {
+fn transmit(obf_output_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinScheduler>>) {
+    let mut ch_tx = match get_channel(obf_output_interface) {
         Ok(tx) => tx,
         Err(error) => panic!("Error getting channel: {error}"),
     };
 
+    // Keep track of time
+    let interval = Duration::from_micros((1e6/PACKETS_PER_SECOND) as u64);
+    let mut last_iteration_time = Instant::now();
 
     // Send Ethernet frames
     loop {
         let mut scheduler = rrs.lock().unwrap();
-        match ch_tx.tx.send_to(scheduler.pop(), None) {
+        let packet = scheduler.pop();
+        drop(scheduler);
+        //println!("Transmit packet of length {}", packet.len());
+        match ch_tx.tx.send_to(&packet, None) {
             Some(res) => {
-                
                 match res {
                     Ok(_) => (),
                     Err(e) => eprintln!("Error sending frame: {}", e),
@@ -104,23 +127,38 @@ fn transmit(tx_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinScheduler>
                 eprintln!("No packets to send");
             }
         }
+
+        // Calculate time to sleep
+        let elapsed_time = last_iteration_time.elapsed();
+        last_iteration_time = Instant::now();
+        let sleep_time = if elapsed_time < interval {
+            interval - elapsed_time
+        } else {
+            Duration::new(0, 0)
+        };
+        // Sleep for the remaining time until the next iteration
+        thread::sleep(sleep_time);
     }
 }
 
-fn receive<'a, 'b>(rx_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinScheduler<'b>>>) 
+fn obfuscate<'a, 'b>(input_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinScheduler>>) 
 where 'a: 'b {
-    let mut ch_rx = match get_channel(rx_interface) {
+    let mut ch_rx = match get_channel(input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
     };
 
     // Process received Ethernet frames
     loop {
-        let mut scheduler = rrs.lock().unwrap();
+        
         match ch_rx.rx.next() {
-            // unsafe { process_packet(std::slice::from_raw_parts(packet.as_ptr(), packet.len()), &mut scheduler) },
             // process_packet(packet, &mut scheduler),
-            Ok(packet) =>  unsafe { process_packet(std::slice::from_raw_parts(packet.as_ptr(), packet.len()), &mut scheduler) },
+            Ok(packet) =>  {
+                //println!("Received length = {}", packet.len());
+                let mut scheduler = rrs.lock().unwrap();
+                scheduler.push(packet.to_vec());
+                drop(scheduler);
+            },
             Err(e) => {
                 eprintln!("Error receiving frame: {}", e);
                 continue;
@@ -129,37 +167,37 @@ where 'a: 'b {
     }
 }
 
-fn process_packet<'a, 'b>(packet: &'a [u8], scheduler: &mut MutexGuard<'_, round_robin::RoundRobinScheduler<'b>>) 
-where 'a: 'b {
-    let eth_packet = EthernetPacket::new(packet).unwrap();
-    if eth_packet.get_source() == MacAddr::new(2,0,0,0,0,0){
-        scheduler.push(packet);
-    }
-}
+fn deobfuscate(obf_input_interface: &str, output_interface: &str) {
+    let mut ch_rx = match get_channel(obf_input_interface) {
+        Ok(rx) => rx,
+        Err(error) => panic!("Error getting channel: {error}"),
+    };
 
-
-fn try_receive(rx: &mut Box<dyn datalink::DataLinkReceiver>) {
-    // Arrays of pattern length used to send data
-    let mut padded_pkt: [u8; pattern::PATTERN[0]] = [0; pattern::PATTERN[0]];
+    let mut ch_tx = match get_channel(output_interface) {
+        Ok(tx) => tx,
+        Err(error) => panic!("Error getting channel: {error}"),
+    };
 
     // Process received Ethernet frames
     loop {
-        match rx.next() {
-            Ok(packet) => {
-                
-                let eth_packet = EthernetPacket::new(packet).unwrap();
-                if eth_packet.get_source() == MacAddr::new(2,0,0,0,0,0){
-                    println!("Received Ethernet frame: {:?}", eth_packet);
-                    println!("The raw packet was {:?} of length {}", packet, packet.len());
-
-                    padded_pkt[..packet.len()].copy_from_slice(packet);
-
-                    println!("The padded packet is {:?} with length {}", padded_pkt, padded_pkt.len());
+        match ch_rx.rx.next() {
+            // process_packet(packet, &mut scheduler),
+            Ok(packet) =>  {
+                match deobfuscate::process_packet(packet) {
+                    // Real packets
+                    Some(packet) => {
+                        println!("Deobfuscated packet with length = {}", packet.len());
+                        ch_tx.tx.send_to(&packet, None);
+                    }, 
+                    // Chaff
+                    None => continue,
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("Error receiving frame: {}", e);
+                continue;
             }
-        }
+        };
     }
 }
+

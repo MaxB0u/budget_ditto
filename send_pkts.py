@@ -94,7 +94,7 @@ def main(args):
     args = parse_args(args)
     setup_logging(args.loglevel)
 
-    pattern = [200]
+    pattern = [200,800]
 
     while True:
         i = 0

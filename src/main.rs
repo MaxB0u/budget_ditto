@@ -1,25 +1,27 @@
-extern crate pnet;
-
 use std::env;
-use std::process;
 
-
-
+use budget_ditto::Interfaces;
 
 fn main() {
     // Get the name of the network interface from the command-line arguments
-    let interface_rx = env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("Usage: {} <interface_rx> <interface_tx>", env::args().next().unwrap());
-        process::exit(1);
-    });
+    let mut args: Vec<String> = env::args().collect();
 
-    let interface_tx = env::args().nth(2).unwrap_or_else(|| {
-        eprintln!("Usage: {} <interface_rx> <interface_tx>", env::args().next().unwrap());
-        process::exit(1);
-    });
+    // Check if at least four arguments are provided
+    if args.len() < 5 {
+        eprintln!("Usage (give 4 interface names): {} <input> <obf_output> <obf_input> <output>", args[0]);
+        std::process::exit(1);
+    }
 
-    if let Err(e) = budget_ditto::run(interface_rx, interface_tx) {
+    let interfaces = Interfaces {
+        // In reverse order since pop is lifo
+        output: args.pop().unwrap_or_default(),
+        obfuscated_input: args.pop().unwrap_or_default(),
+        obfuscated_output: args.pop().unwrap_or_default(),
+        input: args.pop().unwrap_or_default(),    
+    };
+
+    if let Err(e) = budget_ditto::run(interfaces) {
         eprintln!("Application error: {e}");
-        process::exit(1);
+        std::process::exit(1);
     }
 }
