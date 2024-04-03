@@ -1,6 +1,3 @@
-
-use std::collections::BinaryHeap;
-use std::cmp::Reverse;
 use std::cmp::Ordering;
 // use pnet::packet::ipv4::MutableIpv4Packet;
 // use pnet::packet::ip::IpNextHeaderProtocols;
@@ -9,10 +6,6 @@ use std::collections::VecDeque;
 use crate::pattern;
 use pnet::packet::ethernet;
 use pnet::util::MacAddr;
-
-// Higher priority served first
-const PRIORITY_CHAFF: i32 = 1;
-const PRIORITY_REAL: i32 = 2;
 
 // const IP_HEADER_LENGTH: usize = 20;
 // const IP_VERSION: u8 = 4;
@@ -46,25 +39,6 @@ impl<'a> PartialOrd for PriorityPacket<'a> {
 impl<'a> Ord for PriorityPacket<'a> {
     fn cmp(&self, other: &Self) -> Ordering {
         other.priority.cmp(&self.priority) // Reverse ordering for max-heap
-    }
-}
-
-pub fn try_priority_queue() {
-    // Create an empty binary heap priority queue
-    let mut priority_queue: BinaryHeap<Reverse<PriorityPacket>> = BinaryHeap::new();
-
-    let priority_pkt_5 = PriorityPacket{priority: PRIORITY_CHAFF, data: &[0; 1]};
-    let priority_pkt_2 = PriorityPacket{priority: PRIORITY_REAL, data: &[1; 1]};
-    let priority_pkt_7 = PriorityPacket{priority: PRIORITY_CHAFF, data: &[2; 1]};
-
-    // Insert packets into the priority queues 
-    priority_queue.push(Reverse(priority_pkt_5)); 
-    priority_queue.push(Reverse(priority_pkt_2)); 
-    priority_queue.push(Reverse(priority_pkt_7)); 
-
-    // Pop elements from the priority queue in order of priority
-    while let Some(Reverse(priority_pkt)) = priority_queue.pop() {
-        println!("Popped element: {:?}", priority_pkt);
     }
 }
 
@@ -114,7 +88,7 @@ fn pad(data: Vec<u8>, target_length: usize) -> Vec<u8> {
     
     padded_data.resize(target_length, 0);
 
-    //println!("Padded length {}", padded_data.len());
+    //println!("Padded {}B", padded_data.len() - initial_len);
     padded_data
 }
 

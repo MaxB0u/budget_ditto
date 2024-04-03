@@ -3,7 +3,9 @@
 // use std::rc::Rc;
 // use std::cell::RefCell;
 
-pub const PATTERN: [usize; 2] = [500, 1000];
+//pub const PATTERN: [usize; 3] = [500, 1000, 1500];
+pub const PATTERN: [usize; 2] = [782, 1500];
+//pub const PATTERN: [usize; 1] = [1500];
 // Largest size possible in pattern
 const MTU: usize = 1500;
 pub const CHAFF: [u8; MTU] = [0; MTU];

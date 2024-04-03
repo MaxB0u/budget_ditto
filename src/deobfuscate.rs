@@ -9,8 +9,8 @@ enum PacketType {
 fn get_packet_type(packet: &[u8]) -> PacketType {
     // Get the type of packet, can be one of 3 options
 
-    // Ethertype or id never starts with 0 byte except in chaff packets
-    if packet[12] == 0_u8 {
+    // Ethertype or id is never 0 byte except in chaff packets
+    if packet[12] == 0_u8 && packet[13] == 0_u8 {
         return PacketType::Chaff;
     } else {
         return PacketType::Obfuscated;
@@ -35,5 +35,12 @@ fn deobfuscate(packet: &[u8]) -> &[u8] {
         length = *ptr;
     }
 
-    &packet[..length as usize]
+    if length <= packet.len() as u16 {
+        &packet[..length as usize]
+    } else {
+        println!("Failed to read length for packet of length {}. Read {}. Returned raw packet.", packet.len() as u16, length);
+        println!("{:?}, {:?}", packet[10], packet[11]);
+        packet
+    }
+    
 }

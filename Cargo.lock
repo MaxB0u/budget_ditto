@@ -39,6 +39,7 @@ name = "budget_ditto"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "libc",
  "pnet",
  "rand",
 ]

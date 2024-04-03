@@ -1,6 +1,6 @@
-mod pattern;
+pub mod pattern;
 mod deobfuscate;
-mod queues;
+pub mod queues;
 
 use crate::queues::round_robin;
 use pnet::datalink;
@@ -9,9 +9,10 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+//use libc::{c_int, c_void, size_t, sockaddr_ll, socket, AF_PACKET, SOCK_RAW, SOL_PACKET, PACKET_OUTGOING, sendto};
 
 // Rate is Packet/s * Bytes/packet
-const PACKETS_PER_SECOND: f64 = 1e4;//1e1; // -> 100micros between packets
+pub const PACKETS_PER_SECOND: f64 = 1e4; // 1e4 -> 100micros between packets
 
 pub struct ChannelCustom {
     pub tx: Box<dyn datalink::DataLinkSender>,
@@ -43,18 +44,49 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
     println!("Listening for obfuscated Ethernet frames on interface {}...", interfaces.obfuscated_input);
     println!("Sending deobfuscated Ethernet frames on interface {}...", interfaces.output);
 
+    let is_run_specific_core = false;
+    let core_id_obf = 2;
+    let core_id_deobf = 3;
+    let core_id_send = 4;
+
+    println!("Sending on specific cores = {}", is_run_specific_core);
+
     // Spawn thread for obfuscating packets
     let obf_handle = thread::spawn(move || {
+        if is_run_specific_core {
+            unsafe {
+                let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
+                libc::CPU_SET(core_id_obf, &mut cpuset);
+                libc::sched_setaffinity(0, std::mem::size_of_val(&cpuset), &cpuset);
+            }
+        }
+
         obfuscate(&interfaces.input, rx_queue);
     });
 
     // Spawn thread for sending obfuscated packets
     let send_handle = thread::spawn(move || {
+        if is_run_specific_core {
+            unsafe {
+                let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
+                libc::CPU_SET(core_id_send, &mut cpuset);
+                libc::sched_setaffinity(0, std::mem::size_of_val(&cpuset), &cpuset);
+            }
+        }
+
         transmit(&interfaces.obfuscated_output, tx_queue);
     });
 
     // Spawn thread for sending deobfuscating and forwarding packets
     let deobf_handle = thread::spawn(move || {
+        if is_run_specific_core {
+            unsafe {
+                let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
+                libc::CPU_SET(core_id_deobf, &mut cpuset);
+                libc::sched_setaffinity(0, std::mem::size_of_val(&cpuset), &cpuset);
+            }
+        }
+
         deobfuscate(&interfaces.obfuscated_input, &interfaces.output);
     });
 
@@ -97,7 +129,6 @@ fn transmit(obf_output_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinSc
         Err(error) => panic!("Error getting channel: {error}"),
     };
 
-    // Keep track of time
     let interval = Duration::from_micros((1e6/PACKETS_PER_SECOND) as u64);
     //let interval = Duration::from_nanos(100);
     let mut last_iteration_time = Instant::now();
@@ -140,6 +171,7 @@ where 'a: 'b {
         Err(error) => panic!("Error getting channel: {error}"),
     };
 
+    let mut count = 0;
     // Process received Ethernet frames
     loop { 
         match ch_rx.rx.next() {
@@ -155,6 +187,12 @@ where 'a: 'b {
                 continue;
             }
         };
+        count += 1;
+        if count % PACKETS_PER_SECOND as usize == 0 {
+            let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
+            let avg_pad = (*lock_pad) / count as f64 * PACKETS_PER_SECOND;
+            println!("Average pad of {:.2}B", avg_pad);
+        }
     }
 }
 
@@ -193,3 +231,40 @@ fn deobfuscate(obf_input_interface: &str, output_interface: &str) {
 }
 
 
+// unsafe fn send_to_faster(data: &[u8]) {
+//     // Create a raw socket
+//     let sock_fd = unsafe {
+//         socket(AF_PACKET, SOCK_RAW, 0)
+//     };
+//     if sock_fd == -1 {
+//         panic!("Failed to create socket");
+//     }
+
+//     // Prepare destination address
+//     let ifindex: c_int = 1; // Example interface index
+//     let mut sockaddr = sockaddr_ll {
+//         sll_family: AF_PACKET as u16,
+//         sll_protocol: 0, // Set protocol if needed
+//         sll_ifindex: ifindex,
+//         sll_hatype: 0,
+//         sll_pkttype: 0,
+//         sll_halen: 0,
+//         sll_addr: [0; 8], // Set MAC address if needed
+//     };
+
+//     // Call sendto
+//     let result = unsafe {
+//         sendto(
+//             sock_fd,
+//             data.as_ptr() as *const c_void,
+//             data.len(),
+//             0,
+//             &mut sockaddr as *mut sockaddr_ll as *mut _,
+//             std::mem::size_of::<sockaddr_ll>() as u32,
+//         )
+//     };
+
+//     if result == -1 {
+//         panic!("sendto failed");
+//     } 
+// }

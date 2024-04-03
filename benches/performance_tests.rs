@@ -1,4 +1,5 @@
 use budget_ditto;
+use budget_ditto::queues::round_robin;
 use std::thread;
 use pnet::packet::ethernet;
 use pnet::util::MacAddr;
@@ -78,6 +79,14 @@ fn get_random_pkt_len() -> i32 {
     rng.gen_range(MIN_ETH_LEN..=MTU as i32)
 }
 
+fn rr_push() {
+    let pkts = get_eth_frames();
+    let mut rrs = round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len());
+    for p in pkts {
+        rrs.push(p);
+    }
+}
+
 fn bench_send(c: &mut Criterion) {
     let input = "eth1";
     c.bench_function("send", |b| b.iter(|| send(black_box(input))));
@@ -102,6 +111,10 @@ fn bench_receive(c: &mut Criterion) {
     c.bench_function("receive", |b| b.iter(|| receive(black_box(input))));
 }
 
+fn bench_rr_push(c: &mut Criterion) {
+    c.bench_function("rr_push", |b| b.iter(|| rr_push()));
+}
+
 // Before running this need to setup virtual eth 1,2,3
 // And to urn ditto in another window with command
 // sudo -E cargo run eth1 eth2 eth2 eth3
@@ -111,5 +124,7 @@ criterion_group!(gen, bench_get_pkts); // 8 micro sec
 criterion_group!(ch, bench_channel);
 criterion_group!(rx, bench_receive);
 criterion_group!(get_ch, bench_get_channel);
+criterion_group!(push, bench_rr_push);
 // benchmark_main!(tx, ch, rx);
-criterion_main!(get_ch, gen, tx, ch, rx);
+// criterion_main!(get_ch, gen, tx, ch, rx, push);
+criterion_main!(gen, push);
