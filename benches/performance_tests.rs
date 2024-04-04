@@ -1,6 +1,6 @@
 use budget_ditto;
 use budget_ditto::queues::round_robin;
-use std::thread;
+use std::{sync::{Arc, Mutex}, thread};
 use pnet::packet::ethernet;
 use pnet::util::MacAddr;
 use rand::prelude::*;
@@ -88,6 +88,16 @@ fn rr_push() {
     }
 }
 
+fn rr_pop() {
+    // Pop empty queues
+    let pps = 1e6;
+    let rrs = Arc::new(Mutex::new(round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len(), pps)));
+    let mut scheduler = rrs.lock().unwrap();
+    let packet = scheduler.pop();
+    drop(scheduler);
+    println!("{}", packet.len());
+}
+
 fn bench_send(c: &mut Criterion) {
     let input = "eth1";
     c.bench_function("send", |b| b.iter(|| send(black_box(input))));
@@ -116,6 +126,10 @@ fn bench_rr_push(c: &mut Criterion) {
     c.bench_function("rr_push", |b| b.iter(|| rr_push()));
 }
 
+fn bench_rr_pop(c: &mut Criterion) {
+    c.bench_function("rr_pop", |b| b.iter(|| rr_pop()));
+}
+
 // Before running this need to setup virtual eth 1,2,3
 // And to urn ditto in another window with command
 // sudo -E cargo run eth1 eth2 eth2 eth3
@@ -126,6 +140,7 @@ criterion_group!(ch, bench_channel);
 criterion_group!(rx, bench_receive);
 criterion_group!(get_ch, bench_get_channel);
 criterion_group!(push, bench_rr_push);
+criterion_group!(pop, bench_rr_pop);
 // benchmark_main!(tx, ch, rx);
 // criterion_main!(get_ch, gen, tx, ch, rx, push);
-criterion_main!(gen, push);
+criterion_main!(gen, push, pop);

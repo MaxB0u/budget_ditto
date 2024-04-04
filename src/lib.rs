@@ -51,6 +51,8 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
 
     let is_run_specific_core = false;
     let is_send_isolated = true;        // Assumes enough cpu cores and that isolcpus is set in /etc/default/grub
+    let priority = 99;
+
     let core_id_obf = 2;
     let core_id_send = 3;
     let core_id_deobf = 4;
@@ -77,6 +79,13 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
                 let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
                 libc::CPU_SET(core_id_send, &mut cpuset);
                 libc::sched_setaffinity(0, std::mem::size_of_val(&cpuset), &cpuset);
+
+                let thread =  libc::pthread_self();
+                let param = libc::sched_param { sched_priority: priority };
+                let result = libc::pthread_setschedparam(thread, libc::SCHED_FIFO, &param as *const libc::sched_param);
+                if result != 0 {
+                    panic!("Failed to set thread priority");
+                }
             }
         }
 
@@ -152,6 +161,16 @@ fn transmit(obf_output_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinSc
         let packet = scheduler.pop();
         drop(scheduler);
         //println!("Transmit packet of length {}", packet.len());
+
+        // Calculate time to sleep
+        let elapsed_time = last_iteration_time.elapsed();
+        if elapsed_time < interval {
+            thread::sleep(interval - elapsed_time);
+        } else {
+            println!("Ran out of time to process, {:?}", elapsed_time);
+        }
+
+
         match ch_tx.tx.send_to(&packet, None) {
             Some(res) => {
                 match res {
@@ -163,18 +182,7 @@ fn transmit(obf_output_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinSc
                 eprintln!("No packets to send");
             }
         }
-
-        // Calculate time to sleep
-        let elapsed_time = last_iteration_time.elapsed();
-        last_iteration_time = Instant::now();
-        let sleep_time = if elapsed_time < interval {
-            interval - elapsed_time
-        } else {
-            Duration::new(0, 0)
-        };
-        // Sleep for the remaining time until the next iteration
-        // println!("{:?}", sleep_time);
-        thread::sleep(sleep_time);
+        //println!("Took {:?} to send", elapsed_time);
     }
 }
 
