@@ -1,4 +1,5 @@
 use budget_ditto::Interfaces;
+use std::env;
 
 fn main() {
     // Get the name of the network interface from the command-line arguments
@@ -10,12 +11,31 @@ fn main() {
         std::process::exit(1);
     }
 
+    let pps = match env::var("PPS") {
+        Ok(pps_str) => {
+            match pps_str.parse::<f64>() {
+                Ok(pps) => {
+                    pps
+                },
+                Err(e) => {
+                    println!("Error parsing string: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        },
+        Err(e) => {
+            eprintln!("Error getting env vairable PPS {}", e);
+            std::process::exit(1);
+        },
+    };
+
     let interfaces = Interfaces {
         // In reverse order since pop is lifo
         output: args.pop().unwrap_or_default(),
         obfuscated_input: args.pop().unwrap_or_default(),
         obfuscated_output: args.pop().unwrap_or_default(),
-        input: args.pop().unwrap_or_default(),    
+        input: args.pop().unwrap_or_default(),   
+        pps: pps, 
     };
 
     if let Err(e) = budget_ditto::run(interfaces) {
@@ -23,3 +43,4 @@ fn main() {
         std::process::exit(1);
     }
 }
+

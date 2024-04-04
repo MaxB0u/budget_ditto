@@ -80,8 +80,9 @@ fn get_random_pkt_len() -> i32 {
 }
 
 fn rr_push() {
+    let pps = 1e6;
     let pkts = get_eth_frames();
-    let mut rrs = round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len());
+    let mut rrs = round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len(), pps);
     for p in pkts {
         rrs.push(p);
     }

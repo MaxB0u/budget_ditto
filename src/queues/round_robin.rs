@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 use crate::queues::priority_queue;
-use crate::{pattern, PACKETS_PER_SECOND};
+use crate::pattern;
 
 pub static TOTAL_PAD: Mutex<f64> = Mutex::new(0.0);
 
@@ -8,10 +8,11 @@ pub struct RoundRobinScheduler {
     pub queues: Vec<priority_queue::PriorityQueue>,
     pub current_q: usize,
     pub sorted_indices: Vec<usize>,
+    pub pps: f64
 }
 
 impl RoundRobinScheduler {
-    pub fn new(num_queues: usize) -> RoundRobinScheduler {
+    pub fn new(num_queues: usize, pps: f64) -> RoundRobinScheduler {
         let mut queues = Vec::with_capacity(num_queues);
         for i in 0..num_queues {
             queues.push(priority_queue::PriorityQueue::new(pattern::PATTERN[i]));
@@ -20,6 +21,7 @@ impl RoundRobinScheduler {
             queues,
             current_q: 0,
             sorted_indices: pattern::get_sorted_indices(),
+            pps: pps,
         }
     }
 
@@ -34,12 +36,12 @@ impl RoundRobinScheduler {
                 
                 // Keep track of total padding]
                 let mut data = TOTAL_PAD.lock().unwrap();
-                *data += (self.queues[i].length - length) as f64 / PACKETS_PER_SECOND;
+                *data += (self.queues[i].length - length) as f64 / self.pps;
                 break;
             }
         }
         if !is_pushed {
-            println!("Could not push packet of length {}", length);
+            //println!("Could not push packet of length {}", length);
         }
     }
 

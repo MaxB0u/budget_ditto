@@ -38,8 +38,8 @@ fn deobfuscate(packet: &[u8]) -> &[u8] {
     if length <= packet.len() as u16 {
         &packet[..length as usize]
     } else {
-        println!("Failed to read length for packet of length {}. Read {}. Returned raw packet.", packet.len() as u16, length);
-        println!("{:?}, {:?}", packet[10], packet[11]);
+        //println!("Failed to read length for packet of length {}. Read {}. Returned raw packet.", packet.len() as u16, length);
+        //println!("{:?}, {:?}", packet[10], packet[11]);
         packet
     }
     
