@@ -39,7 +39,7 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
     println!("Sending {} packets/s with avg size of {}B => rate = {:.2} KB/s", interfaces.pps, avg_pkt_size, interfaces.pps*avg_pkt_size/1000.0);
 
     println!("Setting up queues for pattern {:?}", pattern::PATTERN);
-    let rrs = Arc::new(Mutex::new(round_robin::RoundRobinScheduler::new(pattern::PATTERN.len(), interfaces.pps)));
+    let rrs = Arc::new(round_robin::RoundRobinScheduler::new(pattern::PATTERN.len(), interfaces.pps));
 
     let tx_queue = Arc::clone(&rrs);
     let rx_queue = Arc::clone(&rrs);
@@ -51,6 +51,7 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
 
     let is_run_specific_core = false;
     let is_send_isolated = true;        // Assumes enough cpu cores and that isolcpus is set in /etc/default/grub
+    let is_listen_isolated = true;
     let priority = 99;
 
     let core_id_obf = 2;
@@ -61,11 +62,18 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
 
     // Spawn thread for obfuscating packets
     let obf_handle = thread::spawn(move || {
-        if is_run_specific_core {
+        if is_listen_isolated {
             unsafe {
                 let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
                 libc::CPU_SET(core_id_obf, &mut cpuset);
                 libc::sched_setaffinity(0, std::mem::size_of_val(&cpuset), &cpuset);
+
+                let thread =  libc::pthread_self();
+                let param = libc::sched_param { sched_priority: priority };
+                let result = libc::pthread_setschedparam(thread, libc::SCHED_FIFO, &param as *const libc::sched_param);
+                if result != 0 {
+                    panic!("Failed to set thread priority");
+                }
             }
         }
 
@@ -138,39 +146,36 @@ pub fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
     Ok(ch)
 }
 
-fn transmit(obf_output_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinScheduler>>, pps: f64) {
+fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
     let mut ch_tx = match get_channel(obf_output_interface) {
         Ok(tx) => tx,
         Err(error) => panic!("Error getting channel: {error}"),
     };
 
-    let interval = Duration::from_micros((1e6/pps) as u64);
+    // Keep track of time
+    let interval = Duration::from_nanos((1e9/pps) as u64);
     //let interval = Duration::from_nanos(100);
-    let mut last_iteration_time = Instant::now();
-
-    // unsafe {
-    //     let sockfd = socket(AF_PACKET, SOCK_RAW, ETH_P_IP as i32);
-    //     if sockfd < 0 {
-    //         panic!(Error::last_os_error());
-    //     }
-    // }
-
+    let mut current_q = 0;
     // Send Ethernet frames
     loop {
-        let mut scheduler = rrs.lock().unwrap();
-        let packet = scheduler.pop();
-        drop(scheduler);
-        //println!("Transmit packet of length {}", packet.len());
+        let last_iteration_time = Instant::now();
+        let packet = rrs.pop(current_q);
+        current_q = (current_q + 1) % pattern::PATTERN.len();
 
         // Calculate time to sleep
         let elapsed_time = last_iteration_time.elapsed();
-        if elapsed_time < interval {
-            thread::sleep(interval - elapsed_time);
+        let sleep_time = if elapsed_time < interval {
+            interval - elapsed_time
         } else {
-            println!("Ran out of time to process, {:?}", elapsed_time);
+            Duration::new(0, 0)
+        };
+        // Sleep for the remaining time until the next iteration
+        thread::sleep(sleep_time);
+        if elapsed_time > interval {
+            println!("Ran out of time processing {:?}", elapsed_time);
         }
 
-
+        //println!("Transmit packet of length {}", packet.len());
         match ch_tx.tx.send_to(&packet, None) {
             Some(res) => {
                 match res {
@@ -182,11 +187,10 @@ fn transmit(obf_output_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinSc
                 eprintln!("No packets to send");
             }
         }
-        //println!("Took {:?} to send", elapsed_time);
     }
 }
 
-fn obfuscate<'a, 'b>(input_interface: &str, rrs: Arc<Mutex<round_robin::RoundRobinScheduler>>, pps: f64) 
+fn obfuscate<'a, 'b>(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) 
 where 'a: 'b {
     let mut ch_rx = match get_channel(input_interface) {
         Ok(rx) => rx,
@@ -200,9 +204,7 @@ where 'a: 'b {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
                 //println!("Received length = {}", packet.len());
-                let mut scheduler = rrs.lock().unwrap();
-                scheduler.push(packet.to_vec());
-                drop(scheduler);
+                rrs.push(packet.to_vec());
             },
             Err(e) => {
                 eprintln!("Error receiving frame: {}", e);

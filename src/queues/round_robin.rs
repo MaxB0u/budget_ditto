@@ -25,7 +25,7 @@ impl RoundRobinScheduler {
         }
     }
 
-    pub fn push(&mut self, packet: Vec<u8>) {
+    pub fn push(&self, packet: Vec<u8>) {
         let mut is_pushed = false;
         let length = packet.len();
         for i in 0..self.queues.len() {
@@ -45,10 +45,8 @@ impl RoundRobinScheduler {
         }
     }
 
-    pub fn pop(&mut self) -> Vec<u8> {
-        let queue_index = self.current_q;
-        self.current_q = (self.current_q + 1) % self.queues.len();
+    pub fn pop(&self, idx: usize) -> Vec<u8> {
         // Pop from the current queue
-        self.queues[queue_index].pop()
+        self.queues[idx].pop()
     }
 }

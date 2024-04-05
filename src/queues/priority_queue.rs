@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 // use pnet::packet::ipv4::MutableIpv4Packet;
 // use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::Packet;
-use std::collections::VecDeque;
+use crossbeam::queue::ArrayQueue;
 use crate::pattern;
 use pnet::packet::ethernet;
 use pnet::util::MacAddr;
@@ -10,6 +10,7 @@ use pnet::util::MacAddr;
 // const IP_HEADER_LENGTH: usize = 20;
 // const IP_VERSION: u8 = 4;
 // const IP_PROTOCOL_IP_IN_IP: u8 = 4;
+const MAX_Q_LEN: usize = 100;
 
 // Each packet has a priority and a reference to its data
 #[derive(Debug)]
@@ -44,24 +45,26 @@ impl<'a> Ord for PriorityPacket<'a> {
 
 pub struct PriorityQueue {
     // Might be more efficient to hard code a queue length in an array
-    pub queue: VecDeque<Vec<u8>>,
+    pub queue: ArrayQueue<Vec<u8>>,
     pub length: usize,
 }
 
 impl PriorityQueue {
     pub fn new(length: usize) -> Self{
-        PriorityQueue{queue: VecDeque::new(), length}
+        PriorityQueue{queue: ArrayQueue::new(MAX_Q_LEN), length}
     }
 
-    pub fn push(&mut self, packet: Vec<u8>) {
+    pub fn push(&self, packet: Vec<u8>) {
         // Pad when you push to be more efficient when you pop
         let padded_data = pad(packet, self.length);
-        self.queue.push_back(padded_data);
+        if let Err(e) = self.queue.push(padded_data) {
+            println!("Queue {} full, length = {}, error pushing", self.length, self.queue.len());
+        }
         //println!("Queue length {}", self.queue.len());
     }
 
-    pub fn pop(&mut self) -> Vec<u8> {
-       let packet = match self.queue.pop_front() {
+    pub fn pop(&self) -> Vec<u8> {
+       let packet = match self.queue.pop() {
            Some(pkt) => {
             //println!("Transmit real packet length {} with first byte after addresses {}", pkt.len(), pkt[12]);
             //assert_ne!(pkt[12], 0_u8); // Make sure first byte after addresses is not 0 or else will be seen as chaff
