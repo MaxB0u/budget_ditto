@@ -100,19 +100,19 @@ fn thread_timer() {
     let interval = Duration::from_nanos(1e3 as u64);
     let t = Instant::now();
     // Calculate time to sleep
-    //let elapsed_time = t.elapsed();
+    let elapsed_time = t.elapsed();
     // Sleep for the remaining time until the next iteration
-    // for _ in 0..1000 {
-    //     unsafe {
-    //         asm! ("nop") 
-    //     }
-    // }
-    while Instant::now() - t < interval {
-        
+    for _ in 0..1000 {
+        unsafe {
+            asm! ("nop") 
+        }
     }
-    // if elapsed_time > interval {
-    //     println!("Ran out of time processing {:?}", elapsed_time);
+    // while Instant::now() - t < interval {
+        
     // }
+    if elapsed_time > interval {
+        println!("Ran out of time processing {:?}", elapsed_time);
+    }
 }
 
 

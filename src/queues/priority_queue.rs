@@ -10,7 +10,7 @@ use pnet::util::MacAddr;
 // const IP_HEADER_LENGTH: usize = 20;
 // const IP_VERSION: u8 = 4;
 // const IP_PROTOCOL_IP_IN_IP: u8 = 4;
-const MAX_Q_LEN: usize = 100;
+const MAX_Q_LEN: usize = 1000;
 
 // Each packet has a priority and a reference to its data
 #[derive(Debug)]
@@ -57,11 +57,25 @@ impl PriorityQueue {
     pub fn push(&self, packet: Vec<u8>) {
         // Pad when you push to be more efficient when you pop
         let padded_data = pad(packet, self.length);
-        if let Err(e) = self.queue.push(padded_data) {
+        if let Err(_) = self.queue.push(padded_data) {
             println!("Queue {} full, length = {}, error pushing", self.length, self.queue.len());
         }
         //println!("Queue length {}", self.queue.len());
     }
+
+    // pub fn push_no_reorder(&self, packet: Vec<u8>, is_chaff: bool) {
+    //     // Pad when you push to be more efficient when you pop
+    //     if is_chaff {
+    //         if let Err(_) = self.queue.push(packet) {
+    //             println!("Queue {} full, length = {}, error pushing", self.length, self.queue.len());
+    //         }
+    //     } else {
+    //         let padded_data = pad(packet, self.length);
+    //         if let Err(_) = self.queue.push(padded_data) {
+    //             println!("Queue {} full, length = {}, error pushing", self.length, self.queue.len());
+    //         }
+    //     }
+    // }
 
     pub fn pop(&self) -> Vec<u8> {
        let packet = match self.queue.pop() {

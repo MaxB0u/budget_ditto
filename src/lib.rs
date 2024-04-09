@@ -1,16 +1,19 @@
 pub mod pattern;
 mod deobfuscate;
 pub mod queues;
+mod feature_flags;
 
+use std::env;
+use std::fs::OpenOptions;
+use std::io::Write;
 use crate::queues::round_robin;
 use pnet::datalink;
 use pnet::datalink::Channel::Ethernet;
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 //use libc::{c_int, c_void, size_t, sockaddr_ll, socket, AF_PACKET, SOCK_RAW, SOL_PACKET, PACKET_OUTGOING, sendto};
-use libc::{c_void, sendto, socket, AF_PACKET, SOCK_RAW, ETH_P_IP, sockaddr_ll, sockaddr, if_nametoindex};
 
 // Rate is Packet/s * Bytes/packet
 //pub const PACKETS_PER_SECOND: f64 = 1e4; // 1e4 -> 100micros between packets
@@ -77,7 +80,11 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        obfuscate(&interfaces.input, rx_queue, interfaces.pps);
+        if feature_flags::FF_NO_REORDERING {
+            obfuscate_in_order(&interfaces.input, rx_queue, interfaces.pps);
+        } else {
+            obfuscate(&interfaces.input, rx_queue, interfaces.pps);
+        }
     });
 
     // Spawn thread for sending obfuscated packets
@@ -154,8 +161,24 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
 
     // Keep track of time
     let interval = Duration::from_nanos((1e9/pps) as u64);
+
+    let save_data = get_env_var_f64("SAVE").unwrap_or(0.0) != 0.0;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .truncate(save_data) // Overwrite
+        .create(true)
+        .open("data.csv")
+        .expect("Could not open file");
+
+    if save_data {
+        writeln!(file, "Iteration,Time").expect("Failed to write to file");
+
+        write_params_to_file(save_data, interval.as_nanos());
+    }
+    
     //let interval = Duration::from_nanos(100);
     let mut current_q = 0;
+    let mut count: usize = 0;
     // Send Ethernet frames
     loop {
         let last_iteration_time = Instant::now();
@@ -172,7 +195,7 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
         // Sleep for the remaining time until the next iteration
         thread::sleep(sleep_time);
         if elapsed_time > interval {
-            println!("Ran out of time processing {:?}", elapsed_time);
+            println!("Ran out of time processing {:?} at pkt {}", elapsed_time, count);
         }
 
         //println!("Transmit packet of length {}", packet.len());
@@ -187,11 +210,15 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
                 eprintln!("No packets to send");
             }
         }
+        count += 1;
+
+        if save_data {
+            writeln!(file, "{},{}", count, last_iteration_time.elapsed().as_nanos()).expect("Failed to write to file");
+        }
     }
 }
 
-fn obfuscate<'a, 'b>(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) 
-where 'a: 'b {
+fn obfuscate(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
     let mut ch_rx = match get_channel(input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -213,8 +240,8 @@ where 'a: 'b {
         };
         count += 1;
         if count % pps as usize == 0 {
-            let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
-            let avg_pad = (*lock_pad) / count as f64 * pps;
+            //let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
+            //let avg_pad = (*lock_pad) / count as f64 * pps;
             //println!("Average pad of {:.2}B", avg_pad);
         }
     }
@@ -254,6 +281,67 @@ fn deobfuscate(obf_input_interface: &str, output_interface: &str) {
     }
 }
 
+pub fn get_env_var_f64(name: &str) -> Result<f64, &'static str> {
+    let var = match env::var(name) {
+        Ok(var) => {
+            match var.parse::<f64>() {
+                Ok(var) => {
+                    var
+                },
+                Err(_) => {
+                    return Err("Error parsing env variable string");
+                }
+            }
+        },
+        Err(_) => {
+            return Err("Error getting env vairable");
+        },
+    };
+    Ok(var)
+}
+
+fn write_params_to_file<T: std::fmt::Display>(overwrite: bool, param: T) {
+    let mut params_file = OpenOptions::new()
+            .write(true)
+            .truncate(overwrite) // Overwrite
+            .create(true)
+            .open("parameters.csv")
+            .expect("Could not open file");
+
+        writeln!(params_file, "Name,Value").expect("Failed to write to file");
+        writeln!(params_file, "interval,{}",param).expect("Failed to write to file");
+}
+
+fn obfuscate_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
+    let mut ch_rx = match get_channel(input_interface) {
+        Ok(rx) => rx,
+        Err(error) => panic!("Error getting channel: {error}"),
+    };
+
+    let mut count = 0;
+    let mut current_q = 0;
+    // Process received Ethernet frames
+    loop { 
+        match ch_rx.rx.next() {
+            // process_packet(packet, &mut scheduler),
+            Ok(packet) =>  {
+                //println!("Received length = {}", packet.len());
+                current_q = rrs.push_no_reorder(packet.to_vec(), current_q);
+            },
+            Err(e) => {
+                eprintln!("Error receiving frame: {}", e);
+                continue;
+            }
+        };
+
+        count += 1;
+        if count % pps as usize == 0 {
+            //let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
+            //let avg_pad = (*lock_pad) / count as f64 * pps;
+            //println!("Average pad of {:.2}B", avg_pad);
+        }
+    }
+}
 
 // unsafe fn send_to_faster(data: &[u8]) {
 //     // Create a raw socket

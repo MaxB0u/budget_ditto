@@ -45,6 +45,23 @@ impl RoundRobinScheduler {
         }
     }
 
+    pub fn push_no_reorder(&self, packet: Vec<u8>, idx: usize) -> usize {
+        // Look at next queue that can accomodate packet instead of queue of nearest length
+        let pkt_len = packet.len();
+        let mut current_q = idx;
+        for i in 0..self.queues.len() {
+            current_q = (idx+i) % self.queues.len();
+            if pkt_len <= self.queues[current_q].length {
+                self.queues[current_q].push(packet);
+                break;
+            }
+            // else {
+            //     self.queues[current_q].push_no_reorder(pattern::CHAFF[0..self.queues[current_q].length].to_vec(), true);
+            // }
+        }
+        (current_q+1) % self.queues.len()
+    }
+
     pub fn pop(&self, idx: usize) -> Vec<u8> {
         // Pop from the current queue
         self.queues[idx].pop()
