@@ -179,8 +179,9 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     //let interval = Duration::from_nanos(100);
     let mut current_q = 0;
     let mut count: usize = 0;
+    let mut delays = vec![0; 2e6 as usize];
     // Send Ethernet frames
-    loop {
+    for i in 0..2e6 as usize {
         let last_iteration_time = Instant::now();
         let packet = rrs.pop(current_q);
         current_q = (current_q + 1) % pattern::PATTERN.len();
@@ -198,7 +199,7 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
             println!("Ran out of time processing {:?} at pkt {}", elapsed_time, count);
         }
 
-        //println!("Transmit packet of length {}", packet.len());
+        // println!("Transmit packet of length {}", packet.len());
         match ch_tx.tx.send_to(&packet, None) {
             Some(res) => {
                 match res {
@@ -213,8 +214,14 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
         count += 1;
 
         if save_data {
-            writeln!(file, "{},{}", count, last_iteration_time.elapsed().as_nanos()).expect("Failed to write to file");
+            let elapsed_time = last_iteration_time.elapsed();
+            //writeln!(file, "{},{}", count, elapsed_time.as_nanos()).expect("Failed to write to file");
+            delays[i] = elapsed_time.as_nanos()
         }
+    }
+
+    for i in 0..delays.len() {
+        writeln!(file, "{},{}", i, delays[i]).expect("Failed to write to file");
     }
 }
 

@@ -10,7 +10,7 @@ use pnet::util::MacAddr;
 // const IP_HEADER_LENGTH: usize = 20;
 // const IP_VERSION: u8 = 4;
 // const IP_PROTOCOL_IP_IN_IP: u8 = 4;
-const MAX_Q_LEN: usize = 1000;
+const MAX_Q_LEN: usize = 1024;
 
 // Each packet has a priority and a reference to its data
 #[derive(Debug)]
