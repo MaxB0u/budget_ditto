@@ -1,47 +1,15 @@
-use std::cmp::Ordering;
-// use pnet::packet::ipv4::MutableIpv4Packet;
-// use pnet::packet::ip::IpNextHeaderProtocols;
+use pnet::packet::ipv4::MutableIpv4Packet;
+use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::Packet;
 use crossbeam::queue::ArrayQueue;
 use crate::pattern;
 use pnet::packet::ethernet;
 use pnet::util::MacAddr;
 
-// const IP_HEADER_LENGTH: usize = 20;
-// const IP_VERSION: u8 = 4;
+const IP_HEADER_LENGTH: usize = 20;
+const IP_VERSION: u8 = 4;
 // const IP_PROTOCOL_IP_IN_IP: u8 = 4;
 const MAX_Q_LEN: usize = 1024;
-
-// Each packet has a priority and a reference to its data
-#[derive(Debug)]
-pub struct PriorityPacket<'a> {
-    pub priority: i32,
-    pub data: &'a [u8], 
-}
-
-// PartialEq to compare based on priorities
-impl<'a> PartialEq for PriorityPacket<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.priority == other.priority
-    }
-}
-
-// The Eq trait has a default implementation
-impl<'a> Eq for PriorityPacket<'a> {}
-
-// PartialOrd to compare priorities
-impl<'a> PartialOrd for PriorityPacket<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-// Ord to compare priorities
-impl<'a> Ord for PriorityPacket<'a> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.priority.cmp(&self.priority) // Reverse ordering for max-heap
-    }
-}
 
 pub struct PriorityQueue {
     // Might be more efficient to hard code a queue length in an array
@@ -86,10 +54,11 @@ impl PriorityQueue {
            },
            None => {
             pattern::CHAFF[..self.length].to_vec()
+            //rand::thread_rng().sample_iter(self.distribution).take(self.length).collect()
            }
        };
-       //pad_and_wrap_ipv4(packet, self.length)
-       packet
+       //packet
+       wrap_in_ipv4(packet)
     }
 }
 
@@ -110,32 +79,27 @@ fn pad(data: Vec<u8>, target_length: usize) -> Vec<u8> {
 }
 
 
-// fn pad_and_wrap_ipv4(data: Vec<u8>, target_length: usize) -> Vec<u8> {
-//     let initial_len = data.len();
-//     let mut data = data;
-
-//     let mut eth_packet = ethernet::MutableEthernetPacket::new(&mut data).unwrap();
-//     // Encode length without padding in src mac address
-//     eth_packet.set_source(MacAddr::new(0_u8,0_u8,0_u8,0_u8, ((initial_len >> 8) & 0xFF) as u8, (initial_len & 0xFF) as u8));
-//     data = eth_packet.packet().to_vec();
+fn wrap_in_ipv4(data: Vec<u8>) -> Vec<u8> {
+    let initial_len = data.len();
+    let mut data = data;
     
-//     data.resize(target_length + IP_HEADER_LENGTH, 0);
-//     data.rotate_right(IP_HEADER_LENGTH);
-//     let mut packet = MutableIpv4Packet::new(&mut data).unwrap();
+    data.resize(initial_len + IP_HEADER_LENGTH, 0);
+    data.rotate_right(IP_HEADER_LENGTH);
+    let mut packet = MutableIpv4Packet::new(&mut data).unwrap();
 
-//     // Set the IP header fields
-//     packet.set_version(IP_VERSION);
-//     packet.set_header_length((IP_HEADER_LENGTH/4) as u8);
-//     packet.set_total_length(((initial_len + IP_HEADER_LENGTH)) as u16); // Set the total length of the packet
-//     //packet.set_identification(1234);
-//     packet.set_ttl(64);
-//     packet.set_next_level_protocol(IpNextHeaderProtocols::Tcp); // Assuming TCP protocol
-//     packet.set_source([192, 168, 1, 1].into());
-//     packet.set_destination([192, 168, 1, 2].into());
+    // Set the IP header fields
+    packet.set_version(IP_VERSION);
+    packet.set_header_length((IP_HEADER_LENGTH/4) as u8);
+    packet.set_total_length(((initial_len + IP_HEADER_LENGTH)) as u16); // Set the total length of the packet
+    //packet.set_identification(1234);
+    packet.set_ttl(64);
+    packet.set_next_level_protocol(IpNextHeaderProtocols::Udp); // Assuming TCP protocol
+    packet.set_source([192, 168, 130, 167].into());
+    packet.set_destination([165, 232, 124, 170].into());
 
-//     // Calculate the checksum for the IP header
-//     packet.set_checksum(pnet::packet::ipv4::checksum(&packet.to_immutable()));
+    // Calculate the checksum for the IP header
+    packet.set_checksum(pnet::packet::ipv4::checksum(&packet.to_immutable()));
     
-//     packet.packet().to_vec()
-// }
+    packet.packet().to_vec()
+}
 

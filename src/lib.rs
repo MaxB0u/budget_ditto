@@ -220,8 +220,10 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
         }
     }
 
-    for i in 0..delays.len() {
-        writeln!(file, "{},{}", i, delays[i]).expect("Failed to write to file");
+    if save_data {
+        for i in 0..delays.len() {
+            writeln!(file, "{},{}", i, delays[i]).expect("Failed to write to file");
+        }
     }
 }
 

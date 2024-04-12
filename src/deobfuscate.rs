@@ -1,4 +1,6 @@
 const ETHERNET_SRC_MAC_OFFSET: usize = 10;
+const MAC_ADDR_LEN: usize = 6;
+const IP_HEADER_LEN: usize = 20;
 
 enum PacketType {
     Chaff,          // Chaff -> All zeros. Look at byte after addresses (byte 13)
@@ -18,6 +20,7 @@ fn get_packet_type(packet: &[u8]) -> PacketType {
 }
 
 pub fn process_packet(packet: &[u8]) -> Option<&[u8]> {
+    let packet = unwrap_ipv4(packet);
     match get_packet_type(packet) {
         PacketType::Chaff => None,
         PacketType::Obfuscated => Some(deobfuscate(packet)),
@@ -27,7 +30,7 @@ pub fn process_packet(packet: &[u8]) -> Option<&[u8]> {
 
 fn deobfuscate(packet: &[u8]) -> &[u8] {
     // Or else it would be an invalid packet anyway
-    assert!(packet.len() >= 6, "Packet length must be at least 6 bytes"); 
+    assert!(packet.len() >= MAC_ADDR_LEN, "Packet length must be at least {} bytes", MAC_ADDR_LEN); 
     let length: u16;
 
     unsafe {
@@ -38,9 +41,14 @@ fn deobfuscate(packet: &[u8]) -> &[u8] {
     if length <= packet.len() as u16 {
         &packet[..length as usize]
     } else {
-        //println!("Failed to read length for packet of length {}. Read {}. Returned raw packet.", packet.len() as u16, length);
+        println!("Failed to read length for packet of length {}. Read {}. Returned raw packet.", packet.len() as u16, length);
         //println!("{:?}, {:?}", packet[10], packet[11]);
         packet
     }
     
 }
+
+fn unwrap_ipv4(packet: &[u8]) -> &[u8] {
+    assert!(packet.len() >= IP_HEADER_LEN, "Packet length must be at least {} bytes", IP_HEADER_LEN); 
+    &packet[IP_HEADER_LEN..]
+} 
