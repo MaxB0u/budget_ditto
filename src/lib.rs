@@ -196,7 +196,7 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
         // Sleep for the remaining time until the next iteration
         thread::sleep(sleep_time);
         if elapsed_time > interval {
-            println!("Ran out of time processing {:?} at pkt {}", elapsed_time, count);
+            // println!("Ran out of time processing {:?} at pkt {}", elapsed_time, count);
         }
 
         // println!("Transmit packet of length {}", packet.len());

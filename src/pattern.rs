@@ -3,7 +3,7 @@
 // use std::rc::Rc;
 // use std::cell::RefCell;
 
-pub const PATTERN: [usize; 3] = [500, 1000, 1480];
+pub const PATTERN: [usize; 3] = [500, 1000, 1480]; // 86B overhead with VPN: 1428+86=1514B -> Or else fragment
 //pub const PATTERN: [usize; 2] = [782, 1500];
 //pub const PATTERN: [usize; 1] = [1500];
 // Largest size possible in pattern
