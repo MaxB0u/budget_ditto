@@ -122,7 +122,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        deobfuscate_data(&deobfuscate, &output);
+        deobfuscate_data(&deobfuscate, &output, ip_src);
     });
 
     // Wait for both threads to finish
@@ -261,7 +261,7 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
     }
 }
 
-fn deobfuscate_data(obf_input_interface: &str, output_interface: &str) {
+fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [u8;4]) {
     let mut ch_rx = match get_channel(obf_input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -277,7 +277,7 @@ fn deobfuscate_data(obf_input_interface: &str, output_interface: &str) {
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
-                match deobfuscate::process_packet(packet) {
+                match deobfuscate::process_packet(packet, ip_src) {
                     // Real packets
                     Some(packet) => {
                         //println!("Deobfuscated packet with length = {}", packet.len());

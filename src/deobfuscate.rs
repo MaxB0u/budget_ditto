@@ -4,30 +4,35 @@ use pnet::packet::ipv4;
 // const MAC_ADDR_LEN: usize = 6;
 const IP_HEADER_LEN: usize = 20;
 // const IP_LEN_OFFSET: usize = 2;
+const IP_SRC_ADDR_OFFSET: usize = 12;
+const IP_ADDR_LEN: usize = 4;
 
 enum PacketType {
     Chaff,          // Chaff -> All zeros. Look at byte after addresses (byte 13)
-    Obfuscated,     // Obfuscated -> Other
-    //Normal,         // Normal -> N/A Only ditto traffic supported for now
+    Incoming,     // Obfuscated -> Other
+    Outgoing,         // Normal -> N/A Only ditto traffic supported for now
 }
 
-fn get_packet_type(packet: &[u8]) -> PacketType {
+fn get_packet_type(packet: &[u8], ip_src: [u8;4]) -> PacketType {
     // Get the type of packet, can be one of 3 options
 
     // Ethertype or id is never 0 byte except in chaff packets
     
     if packet[2] == 0_u8 && packet[3] == 0_u8 {
         return PacketType::Chaff;
+    } else if packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] == ip_src {
+        return PacketType::Outgoing;
     } else {
-        return PacketType::Obfuscated;
+        return PacketType::Incoming;
     }
 }
 
-pub fn process_packet(packet: &[u8]) -> Option<&[u8]> {
+pub fn process_packet(packet: &[u8], ip_src: [u8;4]) -> Option<&[u8]> {
     let packet = unwrap_ipv4(packet);
-    match get_packet_type(packet) {
+    match get_packet_type(packet, ip_src) {
         PacketType::Chaff => None,
-        PacketType::Obfuscated => Some(deobfuscate(packet)),
+        PacketType::Outgoing => None,
+        PacketType::Incoming => Some(deobfuscate(packet)),
         //_ => None
     }
 }
