@@ -66,7 +66,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
     println!("Sending deobfuscated Ethernet frames on interface {}...", output);
 
 
-    println!("Obfuscating on specific cores = {}", is_obf_isolated);
+    println!("Send on specific cores = {}", is_send_isolated);
 
     // Spawn thread for obfuscating packets
     let obf_handle = thread::spawn(move || {
@@ -182,10 +182,11 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     
     //let interval = Duration::from_nanos(100);
     let mut current_q = 0;
-    // let mut count: usize = 0;
+    let mut count: usize = 0;
     let mut delays = vec![0; 2e6 as usize];
     // Send Ethernet frames
-    for i in 0..2e6 as usize {
+    // for i in 0..2e6 as usize {
+    loop {
         let last_iteration_time = Instant::now();
         let packet = rrs.pop(current_q);
         current_q = (current_q + 1) % pattern::PATTERN.len();
@@ -215,20 +216,20 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
                 eprintln!("No packets to send");
             }
         }
-        // count += 1;
+        count += 1;
 
         if save_data {
             let elapsed_time = last_iteration_time.elapsed();
             //writeln!(file, "{},{}", count, elapsed_time.as_nanos()).expect("Failed to write to file");
-            delays[i] = elapsed_time.as_nanos()
+            delays[count] = elapsed_time.as_nanos()
         }
     }
 
-    if save_data {
-        for i in 0..delays.len() {
-            writeln!(file, "{},{}", i, delays[i]).expect("Failed to write to file");
-        }
-    }
+    // if save_data {
+    //     for i in 0..delays.len() {
+    //         writeln!(file, "{},{}", i, delays[i]).expect("Failed to write to file");
+    //     }
+    // }
 }
 
 fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
