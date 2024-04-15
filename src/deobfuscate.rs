@@ -9,31 +9,32 @@ const IP_ADDR_LEN: usize = 4;
 
 enum PacketType {
     Chaff,          // Chaff -> All zeros. Look at byte after addresses (byte 13)
-    Incoming,     // Obfuscated -> Other
-    Outgoing,         // Normal -> N/A Only ditto traffic supported for now
+    Obfuscated,     // Obfuscated -> Other
+    // Normal,         // Normal -> N/A Only ditto traffic supported for now
 }
 
-fn get_packet_type(packet: &[u8], ip_src: [u8;4]) -> PacketType {
+fn get_packet_type(packet: &[u8]) -> PacketType {
     // Get the type of packet, can be one of 3 options
 
     // Ethertype or id is never 0 byte except in chaff packets
     
     if packet[2] == 0_u8 && packet[3] == 0_u8 {
         return PacketType::Chaff;
-    } else if packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] == ip_src {
-        return PacketType::Outgoing;
     } else {
-        return PacketType::Incoming;
+        return PacketType::Obfuscated;
     }
 }
 
 pub fn process_packet(packet: &[u8], ip_src: [u8;4]) -> Option<&[u8]> {
-    let packet = unwrap_ipv4(packet);
-    match get_packet_type(packet, ip_src) {
-        PacketType::Chaff => None,
-        PacketType::Outgoing => None,
-        PacketType::Incoming => Some(deobfuscate(packet)),
-        //_ => None
+    match unwrap_ipv4(packet, ip_src) {
+        Some(packet) => {
+            match get_packet_type(packet) {
+                PacketType::Chaff => None,
+                PacketType::Obfuscated => Some(deobfuscate(packet)),
+                //_ => None
+                }
+            },
+        None => None
     }
 }
 
@@ -66,7 +67,15 @@ fn deobfuscate(packet: &[u8]) -> &[u8] {
     
 }
 
-fn unwrap_ipv4(packet: &[u8]) -> &[u8] {
-    assert!(packet.len() >= IP_HEADER_LEN, "Packet length must be at least {} bytes", IP_HEADER_LEN); 
-    &packet[IP_HEADER_LEN..]
+fn unwrap_ipv4(packet: &[u8], ip_src: [u8;4]) -> Option<&[u8]> {
+    // Unefficient since reecive all outgoing and incoming packets (more processing for no reason)
+    // Better if could directly only receive incoming packets
+    if packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] != ip_src {
+        assert!(packet.len() >= IP_HEADER_LEN, "Packet length must be at least {} bytes", IP_HEADER_LEN); 
+        Some(&packet[IP_HEADER_LEN..])
+    } else {
+        // Outgoing packet
+        None
+    }
+    
 } 
