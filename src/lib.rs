@@ -6,6 +6,7 @@ mod feature_flags;
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::net;
 use crate::queues::round_robin;
 use pnet::datalink;
 use pnet::datalink::Channel::Ethernet;
@@ -28,7 +29,9 @@ pub struct Interfaces {
     pub obfuscated_output: String,
     pub obfuscated_input: String,
     pub output: String,
-    pub pps: f64
+    pub pps: f64,
+    pub src: [u8;4],
+    pub dst: [u8;4],
 }
 
 pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
@@ -42,7 +45,7 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
     println!("Sending {} packets/s with avg size of {}B => rate = {:.2} KB/s", interfaces.pps, avg_pkt_size, interfaces.pps*avg_pkt_size/1000.0);
 
     println!("Setting up queues for pattern {:?}", pattern::PATTERN);
-    let rrs = Arc::new(round_robin::RoundRobinScheduler::new(pattern::PATTERN.len(), interfaces.pps));
+    let rrs = Arc::new(round_robin::RoundRobinScheduler::new(pattern::PATTERN.len(), interfaces.pps, interfaces.src, interfaces.dst));
 
     let tx_queue = Arc::clone(&rrs);
     let rx_queue = Arc::clone(&rrs);
@@ -178,7 +181,7 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     
     //let interval = Duration::from_nanos(100);
     let mut current_q = 0;
-    let mut count: usize = 0;
+    // let mut count: usize = 0;
     let mut delays = vec![0; 2e6 as usize];
     // Send Ethernet frames
     for i in 0..2e6 as usize {
@@ -211,7 +214,7 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
                 eprintln!("No packets to send");
             }
         }
-        count += 1;
+        // count += 1;
 
         if save_data {
             let elapsed_time = last_iteration_time.elapsed();
@@ -307,6 +310,16 @@ pub fn get_env_var_f64(name: &str) -> Result<f64, &'static str> {
         },
     };
     Ok(var)
+}
+
+pub fn parse_ip(ip_str: String) -> [u8;4] {
+    let ip_addr = match ip_str.parse::<net::Ipv4Addr>() {
+        Ok(addr) => addr,
+        Err(e) => {
+            panic!("Failed to parse IP address: {}", e);
+        }
+    };
+    ip_addr.octets()
 }
 
 fn write_params_to_file<T: std::fmt::Display>(overwrite: bool, param: T) {

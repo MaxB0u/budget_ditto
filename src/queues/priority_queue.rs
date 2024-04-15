@@ -11,18 +11,20 @@ const IP_VERSION: u8 = 4;
 // const IP_PROTOCOL_IP_IN_IP: u8 = 4;
 const MAX_Q_LEN: usize = 1024;
 
-const SRC_IP_ADDR: [u8;4] = [10, 9, 0, 2];
-const DST_IP_ADDR: [u8;4] = [10, 9, 0, 1];
+// const SRC_IP_ADDR: [u8;4] = [10, 9, 0, 2];
+// const DST_IP_ADDR: [u8;4] = [10, 9, 0, 1];
 
 pub struct PriorityQueue {
     // Might be more efficient to hard code a queue length in an array
     pub queue: ArrayQueue<Vec<u8>>,
     pub length: usize,
+    src: [u8;4],
+    dst: [u8;4],
 }
 
 impl PriorityQueue {
-    pub fn new(length: usize) -> Self{
-        PriorityQueue{queue: ArrayQueue::new(MAX_Q_LEN), length}
+    pub fn new(length: usize, src: [u8;4], dst: [u8;4]) -> Self{
+        PriorityQueue{queue: ArrayQueue::new(MAX_Q_LEN), length, src, dst}
     }
 
     pub fn push(&self, packet: Vec<u8>) {
@@ -61,7 +63,30 @@ impl PriorityQueue {
            }
        };
        //packet
-       wrap_in_ipv4(packet)
+       self.wrap_in_ipv4(packet)
+    }
+
+    fn wrap_in_ipv4(&self, data: Vec<u8>) -> Vec<u8> {
+        let initial_len = data.len();
+        let mut data = data;
+        
+        data.resize(initial_len + IP_HEADER_LENGTH, 0);
+        data.rotate_right(IP_HEADER_LENGTH);
+        let mut packet = ipv4::MutableIpv4Packet::new(&mut data).unwrap();
+    
+        // Set the IP header fields
+        packet.set_version(IP_VERSION);
+        packet.set_header_length((IP_HEADER_LENGTH/4) as u8);
+        packet.set_total_length(((initial_len + IP_HEADER_LENGTH)) as u16); // Set the total length of the packet
+        //packet.set_identification(1234);
+        packet.set_ttl(64);
+        packet.set_next_level_protocol(IpNextHeaderProtocols::IpIp); 
+        packet.set_source(self.src.into());
+        packet.set_destination(self.dst.into());
+    
+        packet.set_checksum(pnet::packet::ipv4::checksum(&packet.to_immutable()));
+        
+        packet.packet().to_vec()
     }
 }
 
@@ -89,26 +114,5 @@ fn pad(data: Vec<u8>, target_length: usize) -> Vec<u8> {
 }
 
 
-fn wrap_in_ipv4(data: Vec<u8>) -> Vec<u8> {
-    let initial_len = data.len();
-    let mut data = data;
-    
-    data.resize(initial_len + IP_HEADER_LENGTH, 0);
-    data.rotate_right(IP_HEADER_LENGTH);
-    let mut packet = ipv4::MutableIpv4Packet::new(&mut data).unwrap();
 
-    // Set the IP header fields
-    packet.set_version(IP_VERSION);
-    packet.set_header_length((IP_HEADER_LENGTH/4) as u8);
-    packet.set_total_length(((initial_len + IP_HEADER_LENGTH)) as u16); // Set the total length of the packet
-    //packet.set_identification(1234);
-    packet.set_ttl(64);
-    packet.set_next_level_protocol(IpNextHeaderProtocols::IpIp); 
-    packet.set_source(SRC_IP_ADDR.into());
-    packet.set_destination(DST_IP_ADDR.into());
-
-    packet.set_checksum(pnet::packet::ipv4::checksum(&packet.to_immutable()));
-    
-    packet.packet().to_vec()
-}
 

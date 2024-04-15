@@ -5,8 +5,8 @@ fn main() {
     let mut args: Vec<String> = std::env::args().collect();
 
     // Check if at least four arguments are provided
-    if args.len() < 5 {
-        eprintln!("Usage (give 4 interface names): {} <input> <obf_output> <obf_input> <output>", args[0]);
+    if args.len() < 7 {
+        eprintln!("Usage (give 4 interface names): {} <input> <obf_output> <obf_input> <output> <ipsrc> <ipdst>", args[0]);
         std::process::exit(1);
     }
 
@@ -14,6 +14,8 @@ fn main() {
 
     let interfaces = Interfaces {
         // In reverse order since pop is lifo
+        dst: budget_ditto::parse_ip(args.pop().unwrap_or_default()),
+        src: budget_ditto::parse_ip(args.pop().unwrap_or_default()),
         output: args.pop().unwrap_or_default(),
         obfuscated_input: args.pop().unwrap_or_default(),
         obfuscated_output: args.pop().unwrap_or_default(),

@@ -12,10 +12,10 @@ pub struct RoundRobinScheduler {
 }
 
 impl RoundRobinScheduler {
-    pub fn new(num_queues: usize, pps: f64) -> RoundRobinScheduler {
+    pub fn new(num_queues: usize, pps: f64, src: [u8;4], dst: [u8;4]) -> RoundRobinScheduler {
         let mut queues = Vec::with_capacity(num_queues);
         for i in 0..num_queues {
-            queues.push(priority_queue::PriorityQueue::new(pattern::PATTERN[i]));
+            queues.push(priority_queue::PriorityQueue::new(pattern::PATTERN[i], src, dst));
         }
         RoundRobinScheduler {
             queues,

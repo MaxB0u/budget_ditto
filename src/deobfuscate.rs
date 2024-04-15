@@ -3,7 +3,7 @@ use pnet::packet::ipv4;
 // const ETHERNET_SRC_MAC_OFFSET: usize = 10;
 // const MAC_ADDR_LEN: usize = 6;
 const IP_HEADER_LEN: usize = 20;
-const IP_LEN_OFFSET: usize = 2;
+// const IP_LEN_OFFSET: usize = 2;
 
 enum PacketType {
     Chaff,          // Chaff -> All zeros. Look at byte after addresses (byte 13)
