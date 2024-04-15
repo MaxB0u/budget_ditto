@@ -11,8 +11,8 @@ const IP_VERSION: u8 = 4;
 // const IP_PROTOCOL_IP_IN_IP: u8 = 4;
 const MAX_Q_LEN: usize = 1024;
 
-const SRC_IP_ADDR: [u8;4] = [10, 8, 0, 6];
-const DST_IP_ADDR: [u8;4] = [10, 8, 0, 1];
+const SRC_IP_ADDR: [u8;4] = [10, 9, 0, 2];
+const DST_IP_ADDR: [u8;4] = [10, 9, 0, 1];
 
 pub struct PriorityQueue {
     // Might be more efficient to hard code a queue length in an array
