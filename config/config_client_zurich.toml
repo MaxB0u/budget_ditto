@@ -1,0 +1,27 @@
+# IP addresses used by VPN
+[ip]
+src="10.9.0.1"
+dst="10.9.0.2"
+
+# If CPU isolation is used
+[isolation]
+priority=99
+isolate_send=false  # Thread that sends the pattern, the most important to isolate
+core_send = 2
+isolate_obfuscate=false
+core_obfuscate=3
+isolate_deobfuscate=false
+core_deobfuscate=4
+
+# Interfaces to send and receive on
+# To move away from command line arguments
+[interface]
+input="ens34"
+obfuscate="ens38"
+deobfuscate="ens38"
+output="ens35"
+
+#Other parameters
+[general]
+pps=5e4
+save=false

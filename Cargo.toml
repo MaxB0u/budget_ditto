@@ -13,6 +13,7 @@ criterion = "0.5.1"
 rand = "0.8.4"
 libc = "0.2.107"
 crossbeam = "0.8"
+toml = "0.8.12"
 
 [[bench]]
 name = "performance_tests"

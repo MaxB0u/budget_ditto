@@ -3,7 +3,6 @@ mod deobfuscate;
 pub mod queues;
 mod feature_flags;
 
-use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::net;
@@ -14,6 +13,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use toml::Value;
 //use libc::{c_int, c_void, size_t, sockaddr_ll, socket, AF_PACKET, SOCK_RAW, SOL_PACKET, PACKET_OUTGOING, sendto};
 
 // Rate is Packet/s * Bytes/packet
@@ -24,51 +24,53 @@ pub struct ChannelCustom {
     pub rx: Box<dyn datalink::DataLinkReceiver>,
 }
 
-pub struct Interfaces {
-    pub input: String,
-    pub obfuscated_output: String,
-    pub obfuscated_input: String,
-    pub output: String,
-    pub pps: f64,
-    pub src: [u8;4],
-    pub dst: [u8;4],
-}
-
-pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
+pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
     
     // let devices = Device::list()?;
     // for device in &devices {
     //     println!("Device: {}", device.name);
     // }
-
+    let pps = settings["general"]["pps"].as_float().expect("PPS setting not found");
+    let save_data = settings["general"]["save"].as_bool().expect("Save setting not found");
     let avg_pkt_size = pattern::PATTERN.iter().sum::<usize>() as f64 / pattern::PATTERN.len() as f64;
-    println!("Sending {} packets/s with avg size of {}B => rate = {:.2} KB/s", interfaces.pps, avg_pkt_size, interfaces.pps*avg_pkt_size/1000.0);
+    println!("Sending {} packets/s with avg size of {}B => rate = {:.2} KB/s", pps, avg_pkt_size, pps*avg_pkt_size/1000.0);
+
+    let ip_src = parse_ip(settings["ip"]["src"].as_str().expect("Src ip address not found").to_string());
+    let ip_dst = parse_ip(settings["ip"]["dst"].as_str().expect("Dst ip address not found").to_string());
 
     println!("Setting up queues for pattern {:?}", pattern::PATTERN);
-    let rrs = Arc::new(round_robin::RoundRobinScheduler::new(pattern::PATTERN.len(), interfaces.pps, interfaces.src, interfaces.dst));
+    let rrs = Arc::new(round_robin::RoundRobinScheduler::new(pattern::PATTERN.len(), pps, ip_src, ip_dst));
 
     let tx_queue = Arc::clone(&rrs);
     let rx_queue = Arc::clone(&rrs);
 
-    println!("Listening for Ethernet frames on interface {}...", interfaces.input);
-    println!("Sending obfuscated Ethernet frames on interface {}...", interfaces.obfuscated_output);
-    println!("Listening for obfuscated Ethernet frames on interface {}...", interfaces.obfuscated_input);
-    println!("Sending deobfuscated Ethernet frames on interface {}...", interfaces.output);
+    let is_deobf_isolated = settings["isolation"]["isolate_deobfuscate"].as_bool().expect("Isolate deobf setting not found");
+    let core_id_deobf = settings["isolation"]["core_deobfuscate"].as_integer().expect("Core deobf setting not found") as usize;
 
-    let is_run_specific_core = false;
-    let is_send_isolated = true;        // Assumes enough cpu cores and that isolcpus is set in /etc/default/grub
-    let is_listen_isolated = true;
-    let priority = 99;
+    let is_send_isolated = settings["isolation"]["isolate_send"].as_bool().expect("Isolate send setting not found");  
+    let core_id_send = settings["isolation"]["core_send"].as_integer().expect("Core send setting not found") as usize;
 
-    let core_id_obf = 2;
-    let core_id_send = 3;
-    let core_id_deobf = 4;
+    let is_obf_isolated = settings["isolation"]["isolate_obfuscate"].as_bool().expect("Isolate obf setting not found");     
+    let core_id_obf = settings["isolation"]["core_obfuscate"].as_integer().expect("Core obf setting not found") as usize;
 
-    println!("Sending on specific cores = {}", is_run_specific_core);
+    let priority = settings["isolation"]["priority"].as_integer().expect("Thread priority setting not found") as i32; 
+
+    let input = settings["interface"]["input"].as_str().expect("Input interface setting not found").to_string(); 
+    let obfuscate = settings["interface"]["obfuscate"].as_str().expect("Obf output interface setting not found").to_string(); 
+    let deobfuscate = settings["interface"]["deobfuscate"].as_str().expect("Obf input interface setting not found").to_string(); 
+    let output = settings["interface"]["output"].as_str().expect("Output interface setting not found").to_string(); 
+
+    println!("Listening for Ethernet frames on interface {}...", input);
+    println!("Sending obfuscated Ethernet frames on interface {}...", obfuscate);
+    println!("Listening for obfuscated Ethernet frames on interface {}...", deobfuscate);
+    println!("Sending deobfuscated Ethernet frames on interface {}...", output);
+
+
+    println!("Obfuscating on specific cores = {}", is_obf_isolated);
 
     // Spawn thread for obfuscating packets
     let obf_handle = thread::spawn(move || {
-        if is_listen_isolated {
+        if is_obf_isolated {
             unsafe {
                 let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
                 libc::CPU_SET(core_id_obf, &mut cpuset);
@@ -84,9 +86,9 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
         }
 
         if feature_flags::FF_NO_REORDERING {
-            obfuscate_in_order(&interfaces.input, rx_queue, interfaces.pps);
+            obfuscate_data_in_order(&input, rx_queue, pps);
         } else {
-            obfuscate(&interfaces.input, rx_queue, interfaces.pps);
+            obfuscate_data(&input, rx_queue, pps);
         }
     });
 
@@ -107,12 +109,12 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        transmit(&interfaces.obfuscated_output, tx_queue, interfaces.pps);
+        transmit(&obfuscate, tx_queue, pps, save_data);
     });
 
     // Spawn thread for sending deobfuscating and forwarding packets
     let deobf_handle = thread::spawn(move || {
-        if is_run_specific_core {
+        if is_deobf_isolated {
             unsafe {
                 let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
                 libc::CPU_SET(core_id_deobf, &mut cpuset);
@@ -120,7 +122,7 @@ pub fn run(interfaces: Interfaces) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        deobfuscate(&interfaces.obfuscated_input, &interfaces.output);
+        deobfuscate_data(&deobfuscate, &output);
     });
 
     // Wait for both threads to finish
@@ -156,7 +158,7 @@ pub fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
     Ok(ch)
 }
 
-fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
+fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, save_data: bool) {
     let mut ch_tx = match get_channel(obf_output_interface) {
         Ok(tx) => tx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -165,7 +167,6 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     // Keep track of time
     let interval = Duration::from_nanos((1e9/pps) as u64);
 
-    let save_data = get_env_var_f64("SAVE").unwrap_or(0.0) != 0.0;
     let mut file = OpenOptions::new()
         .write(true)
         .truncate(save_data) // Overwrite
@@ -230,7 +231,7 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     }
 }
 
-fn obfuscate(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
+fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
     let mut ch_rx = match get_channel(input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -259,7 +260,7 @@ fn obfuscate(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, 
     }
 }
 
-fn deobfuscate(obf_input_interface: &str, output_interface: &str) {
+fn deobfuscate_data(obf_input_interface: &str, output_interface: &str) {
     let mut ch_rx = match get_channel(obf_input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -293,26 +294,26 @@ fn deobfuscate(obf_input_interface: &str, output_interface: &str) {
     }
 }
 
-pub fn get_env_var_f64(name: &str) -> Result<f64, &'static str> {
-    let var = match env::var(name) {
-        Ok(var) => {
-            match var.parse::<f64>() {
-                Ok(var) => {
-                    var
-                },
-                Err(_) => {
-                    return Err("Error parsing env variable string");
-                }
-            }
-        },
-        Err(_) => {
-            return Err("Error getting env vairable");
-        },
-    };
-    Ok(var)
-}
+// pub fn get_env_var_f64(name: &str) -> Result<f64, &'static str> {
+//     let var = match env::var(name) {
+//         Ok(var) => {
+//             match var.parse::<f64>() {
+//                 Ok(var) => {
+//                     var
+//                 },
+//                 Err(_) => {
+//                     return Err("Error parsing env variable string");
+//                 }
+//             }
+//         },
+//         Err(_) => {
+//             return Err("Error getting env vairable");
+//         },
+//     };
+//     Ok(var)
+// }
 
-pub fn parse_ip(ip_str: String) -> [u8;4] {
+fn parse_ip(ip_str: String) -> [u8;4] {
     let ip_addr = match ip_str.parse::<net::Ipv4Addr>() {
         Ok(addr) => addr,
         Err(e) => {
@@ -334,7 +335,7 @@ fn write_params_to_file<T: std::fmt::Display>(overwrite: bool, param: T) {
         writeln!(params_file, "interval,{}",param).expect("Failed to write to file");
 }
 
-fn obfuscate_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
+fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
     let mut ch_rx = match get_channel(input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),

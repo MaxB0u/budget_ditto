@@ -12,6 +12,8 @@ const NUM_PACKETS: f64 = 1e3;
 const MIN_ETH_LEN: i32 = 64;
 const MTU: usize = 1500;
 const EMPTY_PKT: [u8; MTU] = [0; MTU];
+const SRC_IP_ADDR: [u8;4] = [10, 9, 0, 2];
+const DST_IP_ADDR: [u8;4] = [10, 9, 0, 1];
 
 fn send(input: &str) {
     let mut ch_tx = match budget_ditto::get_channel(input) {
@@ -84,7 +86,7 @@ fn get_random_pkt_len() -> i32 {
 fn rr_push() {
     let pps = 1e6;
     let mut pkts = get_eth_frames();
-    let rrs = round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len(), pps);
+    let rrs = round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len(), pps, SRC_IP_ADDR, DST_IP_ADDR);
     for _ in 0..100 {
         rrs.push(pkts.pop().expect("Failed getting frame"));
     }
@@ -92,7 +94,7 @@ fn rr_push() {
 
 fn rr_pop() {
     // Pop empty queues
-    let rrs = round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len(), 1e6);
+    let rrs = round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len(), 1e6, SRC_IP_ADDR, DST_IP_ADDR);
     rrs.pop(pattern::PATTERN.len()-1); // Pop from last q (currently longest so worst case scenario. Be careful about this)
 }
 
