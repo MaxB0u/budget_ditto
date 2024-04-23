@@ -70,7 +70,7 @@ fn deobfuscate(packet: &[u8]) -> &[u8] {
 fn unwrap_ipv4(packet: &[u8], ip_src: [u8;4]) -> Option<&[u8]> {
     // Unefficient since reecive all outgoing and incoming packets (more processing for no reason)
     // Better if could directly only receive incoming packets
-    if packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] != ip_src {
+    if packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] == ip_src {
         assert!(packet.len() >= IP_HEADER_LEN, "Packet length must be at least {} bytes", IP_HEADER_LEN); 
         Some(&packet[IP_HEADER_LEN..])
     } else {

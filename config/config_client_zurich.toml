@@ -1,14 +1,14 @@
 # IP addresses used by VPN
 [ip]
-src="10.9.0.2"
-dst="10.9.0.1"
+src="10.6.0.102"
+dst="10.6.0.2"
 
 # If CPU isolation is used
 [isolation]
 priority=99
 isolate_send=true  # Thread that sends the pattern, the most important to isolate
 core_send=2
-isolate_obfuscate=false
+isolate_obfuscate=true
 core_obfuscate=3
 isolate_deobfuscate=false
 core_deobfuscate=4
@@ -17,11 +17,17 @@ core_deobfuscate=4
 # To move away from command line arguments
 [interface]
 input="ens38"
-obfuscate="wg0"
-deobfuscate="wg0"
+obfuscate="wg2"
+deobfuscate="wg2"
 output="ens39"
+#input="ens39"
+#obfuscate="ens38"
+#deobfuscate="ens38"
+#output="ens35"
 
 #Other parameters
 [general]
-pps=1e4
-save=false
+pps=5e4
+# Do not save on tx/rx at same time, writing to file here might skew the results
+# Or would need to modify infinite loop in obfuscate_data()
+save=true 

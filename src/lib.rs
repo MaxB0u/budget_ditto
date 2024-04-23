@@ -86,9 +86,9 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
         }
 
         if feature_flags::FF_NO_REORDERING {
-            obfuscate_data_in_order(&input, rx_queue, pps);
+            obfuscate_data_in_order(&input, rx_queue, pps, save_data);
         } else {
-            obfuscate_data(&input, rx_queue, pps);
+            obfuscate_data(&input, rx_queue, pps, save_data);
         }
     });
 
@@ -159,6 +159,8 @@ pub fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
 }
 
 fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, save_data: bool) {
+    println!("Transmitting data...");
+
     let mut ch_tx = match get_channel(obf_output_interface) {
         Ok(tx) => tx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -185,8 +187,8 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     let mut count: usize = 0;
     let mut delays = vec![0; 2e6 as usize];
     // Send Ethernet frames
-    // for i in 0..2e6 as usize {
-    loop {
+    for _ in 0..2e6 as usize {
+    // loop {
         let last_iteration_time = Instant::now();
         let packet = rrs.pop(current_q);
         current_q = (current_q + 1) % pattern::PATTERN.len();
@@ -209,34 +211,49 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
             Some(res) => {
                 match res {
                     Ok(_) => (),
-                    Err(e) => eprintln!("Error sending frame: {}", e),
+                    Err(e) => println!("Error sending frame: {}", e),
                 }
             }
             None => {
-                eprintln!("No packets to send");
+                println!("No packets to send");
             }
         }
-        count += 1;
-
+        
         if save_data {
             let elapsed_time = last_iteration_time.elapsed();
             //writeln!(file, "{},{}", count, elapsed_time.as_nanos()).expect("Failed to write to file");
             delays[count] = elapsed_time.as_nanos()
         }
+        count += 1;
     }
 
-    // if save_data {
-    //     for i in 0..delays.len() {
-    //         writeln!(file, "{},{}", i, delays[i]).expect("Failed to write to file");
-    //     }
-    // }
+    println!("Done trasnmitting data!");
+
+    if save_data {
+        println!("Saving...");
+        for i in 0..delays.len() {
+            writeln!(file, "{},{}", i, delays[i]).expect("Failed to write to file");
+        }
+        println!("Data saved to file!");
+    }
 }
 
-fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
+fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, save_data: bool) {
     let mut ch_rx = match get_channel(input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
     };
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .truncate(save_data) // Overwrite
+        .create(true)
+        .open("pad.csv")
+        .expect("Could not open file");
+
+    if save_data {
+        writeln!(file, "Iteration,Pad").expect("Failed to write to file");
+    }
 
     let mut count = 0;
     // Process received Ethernet frames
@@ -252,12 +269,19 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
                 continue;
             }
         };
-        count += 1;
-        if count % pps as usize == 0 {
-            //let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
-            //let avg_pad = (*lock_pad) / count as f64 * pps;
-            //println!("Average pad of {:.2}B", avg_pad);
+
+        if count % pps as usize == 0 && count != 0{
+            let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
+            // COuld reset it here if want to or else moving average
+            let avg_pad = (*lock_pad) / count as f64 * pps;
+            if save_data {
+                writeln!(file, "{},{}", count, avg_pad).expect("Failed to write to file");
+            } else {
+                // println!("Average pad of {:.2}B", avg_pad);
+            }
         }
+
+        count += 1;
     }
 }
 
@@ -324,7 +348,7 @@ fn parse_ip(ip_str: String) -> [u8;4] {
     ip_addr.octets()
 }
 
-fn write_params_to_file<T: std::fmt::Display>(overwrite: bool, param: T) {
+fn write_params_to_file<T: std::fmt::Display>(overwrite: bool, interval: T) {
     let mut params_file = OpenOptions::new()
             .write(true)
             .truncate(overwrite) // Overwrite
@@ -332,15 +356,27 @@ fn write_params_to_file<T: std::fmt::Display>(overwrite: bool, param: T) {
             .open("parameters.csv")
             .expect("Could not open file");
 
-        writeln!(params_file, "Name,Value").expect("Failed to write to file");
-        writeln!(params_file, "interval,{}",param).expect("Failed to write to file");
+    writeln!(params_file, "Name,Value").expect("Failed to write to file");
+    writeln!(params_file, "interval,{}",interval).expect("Failed to write to file");
+    writeln!(params_file, "pattern, {:?}", pattern::PATTERN).expect("Failed to write to file");
 }
 
-fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64) {
+fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, save_data: bool) {
     let mut ch_rx = match get_channel(input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
     };
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .truncate(save_data) // Overwrite
+        .create(true)
+        .open("pad.csv")
+        .expect("Could not open file");
+
+    if save_data {
+        writeln!(file, "Iteration,Pad").expect("Failed to write to file");
+    }
 
     let mut count = 0;
     let mut current_q = 0;
@@ -358,12 +394,18 @@ fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRob
             }
         };
 
-        count += 1;
-        if count % pps as usize == 0 {
-            //let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
-            //let avg_pad = (*lock_pad) / count as f64 * pps;
-            //println!("Average pad of {:.2}B", avg_pad);
+        if count % pps as usize == 0 && count != 0{
+            let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
+            // COuld reset it here if want to or else moving average
+            let avg_pad = (*lock_pad) / count as f64 * pps;
+            if save_data {
+                writeln!(file, "{},{}", count, avg_pad).expect("Failed to write to file");
+            } else {
+                // println!("Average pad of {:.2}B", avg_pad);
+            }
         }
+
+        count += 1;
     }
 }
 
