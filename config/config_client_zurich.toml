@@ -1,7 +1,7 @@
 # IP addresses used by VPN
 [ip]
-src="10.6.0.102"
-dst="10.6.0.2"
+src="10.7.0.2"
+dst="10.7.0.1"
 
 # If CPU isolation is used
 [isolation]
@@ -17,8 +17,8 @@ core_deobfuscate=4
 # To move away from command line arguments
 [interface]
 input="ens38"
-obfuscate="wg2"
-deobfuscate="wg2"
+obfuscate="wg3"
+deobfuscate="wg3"
 output="ens39"
 #input="ens39"
 #obfuscate="ens38"
@@ -27,7 +27,8 @@ output="ens39"
 
 #Other parameters
 [general]
-pps=5e4
+pps=2e4
 # Do not save on tx/rx at same time, writing to file here might skew the results
 # Or would need to modify infinite loop in obfuscate_data()
-save=true 
+save=false 
+local=false

@@ -18,6 +18,7 @@ use toml::Value;
 
 // Rate is Packet/s * Bytes/packet
 //pub const PACKETS_PER_SECOND: f64 = 1e4; // 1e4 -> 100micros between packets
+const NUM_PKTS_TO_SAVE: f64 = 2e6;
 
 pub struct ChannelCustom {
     pub tx: Box<dyn datalink::DataLinkSender>,
@@ -32,6 +33,8 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
     // }
     let pps = settings["general"]["pps"].as_float().expect("PPS setting not found");
     let save_data = settings["general"]["save"].as_bool().expect("Save setting not found");
+    let is_local = settings["general"]["local"].as_bool().expect("Is local setting not found");
+
     let avg_pkt_size = pattern::PATTERN.iter().sum::<usize>() as f64 / pattern::PATTERN.len() as f64;
     println!("Sending {} packets/s with avg size of {}B => rate = {:.2} KB/s", pps, avg_pkt_size, pps*avg_pkt_size/1000.0);
 
@@ -122,7 +125,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        deobfuscate_data(&deobfuscate, &output, ip_src);
+        deobfuscate_data(&deobfuscate, &output, ip_src, is_local);
     });
 
     // Wait for both threads to finish
@@ -187,8 +190,8 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     let mut count: usize = 0;
     let mut delays = vec![0; 2e6 as usize];
     // Send Ethernet frames
-    for _ in 0..2e6 as usize {
-    // loop {
+    // for _ in 0..NUM_PKTS_TO_SAVE as usize {
+    loop {
         let last_iteration_time = Instant::now();
         let packet = rrs.pop(current_q);
         current_q = (current_q + 1) % pattern::PATTERN.len();
@@ -285,7 +288,7 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
     }
 }
 
-fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [u8;4]) {
+fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [u8;4], is_local: bool) {
     let mut ch_rx = match get_channel(obf_input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -301,7 +304,7 @@ fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
-                match deobfuscate::process_packet(packet, ip_src) {
+                match deobfuscate::process_packet(packet, ip_src, is_local) {
                     // Real packets
                     Some(packet) => {
                         //println!("Deobfuscated packet with length = {}", packet.len());
