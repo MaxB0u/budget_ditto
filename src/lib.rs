@@ -265,13 +265,23 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
     }
 
     let mut count = 0;
+    let mut psv = pattern::get_push_state_vector();
+    println!("psv: {:?}", psv);
     // Process received Ethernet frames
     loop { 
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
                 //println!("Received length = {}", packet.len());
-                rrs.push(packet.to_vec());
+                let idx = rrs.push(packet.to_vec(), &psv);
+                let mut previous_state = 0;
+                if idx > 0 {
+                    previous_state = psv[idx-1].1;
+                }
+                // We pushed in a state with many queues, adjust the next queue that will be pushed to in that state
+                let modulus = psv[idx].1 - previous_state;
+                let next_queue = psv[idx].0 - previous_state + 1;
+                psv[idx].0 = next_queue % modulus + previous_state;
             },
             Err(e) => {
                 eprintln!("Error receiving frame: {}", e);
@@ -417,61 +427,3 @@ fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRob
         count += 1;
     }
 }
-
-// unsafe fn send_to_faster(data: &[u8]) {
-//     // Create a raw socket
-//     let sock_fd = unsafe {
-//         socket(AF_PACKET, SOCK_RAW, 0)
-//     };
-//     if sock_fd == -1 {
-//         panic!("Failed to create socket");
-//     }
-
-//     // Prepare destination address
-//     let ifindex: c_int = 1; // Example interface index
-//     let mut sockaddr = sockaddr_ll {
-//         sll_family: AF_PACKET as u16,
-//         sll_protocol: 0, // Set protocol if needed
-//         sll_ifindex: ifindex,
-//         sll_hatype: 0,
-//         sll_pkttype: 0,
-//         sll_halen: 0,
-//         sll_addr: [0; 8], // Set MAC address if needed
-//     };
-
-//     // Call sendto
-//     let result = unsafe {
-//         sendto(
-//             sock_fd,
-//             data.as_ptr() as *const c_void,
-//             data.len(),
-//             0,
-//             &mut sockaddr as *mut sockaddr_ll as *mut _,
-//             std::mem::size_of::<sockaddr_ll>() as u32,
-//         )
-//     };
-
-//     if result == -1 {
-//         panic!("sendto failed");
-//     } 
-// }
-
-// unsafe fn low_level_send(pkt: &[u8]) -> Result<(), Box<dyn Error>> {
-
-//     // Send the frame
-//     let result = sendto(
-//         sockfd,
-//         frame_data.as_ptr() as *const c_void,
-//         frame_data.len(),
-//         0,
-//         &dest_addr as *const sockaddr_ll as *const sockaddr,
-//         std::mem::size_of::<sockaddr_ll>() as u32,
-//     );
-
-//     // Check for errors
-//     if result < 0 {
-//         Err(io::Error::last_os_error())
-//     } else {
-//         Ok(())
-//     }
-// }

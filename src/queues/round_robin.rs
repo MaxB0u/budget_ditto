@@ -9,8 +9,6 @@ pub struct RoundRobinScheduler {
     // Find queue to push with hashmap key. If many queues of that length
     // then either keep track of last one pushed to, check their lengths or do a hash to decide which one
     pub queues: Vec<priority_queue::PriorityQueue>,
-    pub current_q: usize,
-    pub sorted_indices: Vec<usize>,
     pub pps: f64
 }
 
@@ -22,21 +20,23 @@ impl RoundRobinScheduler {
         }
         RoundRobinScheduler {
             queues,
-            current_q: 0,
-            sorted_indices: pattern::get_sorted_indices(),
             pps: pps,
         }
     }
 
-    pub fn push(&self, packet: Vec<u8>) {
+    pub fn push(&self, packet: Vec<u8>, last_queues: &Vec<(usize,usize)>) -> usize {
         let mut is_pushed = false;
+        let mut current_q = self.queues.len(); // Return this if unable to push
         let length = packet.len();
         for i in 0..self.queues.len() {
             // Look if fits in pattern from smallest to largest element
-            if packet.len() <= pattern::PATTERN[self.sorted_indices[i]] { // Look into making this more efficient
-                self.queues[i].push(packet);
-                is_pushed = true;
+            if packet.len() <= pattern::PATTERN[i] { // Assumes pattern is in ascending order!!
+                let idx = last_queues[i].0;
+                self.queues[idx].push(packet); 
+                current_q = i;
                 
+                println!("Pushed to queue {}, length = {}", idx, length);
+                is_pushed = true;
                 // Keep track of total padding]
                 let mut data = TOTAL_PAD.lock().unwrap();
                 *data += (self.queues[i].length - length) as f64 / self.pps;
@@ -46,6 +46,7 @@ impl RoundRobinScheduler {
         if !is_pushed {
             //println!("Could not push packet of length {}", length);
         }
+        current_q
     }
 
     pub fn push_no_reorder(&self, packet: Vec<u8>, idx: usize) -> usize {

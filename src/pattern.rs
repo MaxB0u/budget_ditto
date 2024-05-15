@@ -1,24 +1,13 @@
-// use crate::priority_queue::PriorityQueue;
-// use std::collections::BinaryHeap;
-// use std::rc::Rc;
-// use std::cell::RefCell;
+/*
+TO BE MORE EFFICIENT ASSUME THAT PATTERN IS IN ASCENDING ORDER
+*/
 
 // 86B overhead with VPN: 1428+86=1514B -> Or else fragment
-pub const PATTERN: [usize; 1] = [1400];
+pub const PATTERN: [usize; 3] = [200, 1400, 1400];
 
 // Largest size possible in pattern
 const MTU: usize = 1500;
 pub const CHAFF: [u8; MTU] = [0; MTU];
-
-// pub fn get_chaff_pkts<'a>() -> Vec<&'a [u8]> {
-//     let mut chaff_pkts = Vec::<&[u8]>::new();
-//     for &length in PATTERN.iter() {
-//         // Since can not use constant values directly, need this workaround
-//         let chaff: &'a [u8] = &[0_u8; MTU];
-//         chaff_pkts.push(&chaff[0..length]);
-//     }
-//     chaff_pkts
-// }
 
 pub fn get_sorted_indices() -> Vec<usize> {
     // Gets sorted indices needed to match incoming packets and the corresponding queue index to choose
@@ -28,17 +17,27 @@ pub fn get_sorted_indices() -> Vec<usize> {
     indices
 }
 
-// pub fn get_priority_queues<'a>() -> Vec<PriorityQueue<'a>> {
-//     let mut priority_queues = Vec::<PriorityQueue>::new();
+pub fn get_push_state_vector() -> Vec<(usize,usize)> {
+    // Store in a vector the ranges of each state [state_start_index,next_state_start[
+    // Fancy encoding so no need to use hash maps and reduce overhead compared to accessing lists. 
+    // Since patterns are relatively small and in increasing order it should be ok.
+    // Make the vector as long as the pattern for easier processing after
+    // e.g PATTERN=[100,200,300,300,300,500] gives [(0,1),(1,2),(2,5),(2,5),(2,5),(5,6)]
+    // First number in tuple is next queue to push to, second number is the index at which the next state starts
+    let mut state = Vec::new();
+    let mut count = 0;
 
-//     // Create BinaryHeaps and wrap them in Rc<RefCell<_>>
-//     let binary_heaps: Vec<_> = PATTERN.iter().map(|_| Rc::new(RefCell::new(BinaryHeap::new()))).collect();
-
-//     // Iterate over PATTERN and create PriorityQueue instances
-//     for binary_heap_rc in &binary_heaps {
-//         let pq = PriorityQueue { queue: Rc::clone(&binary_heap_rc) };
-//         priority_queues.push(pq);
-//     }
-
-//     priority_queues
-// }
+    let mut previous_state = 0;
+    for i in 0..PATTERN.len() {
+        if i < PATTERN.len()-1 && PATTERN[i] == PATTERN[i+1] {
+            count += 1
+        } else {
+            for _ in 0..count+1 {
+                state.push((previous_state,i+1));
+            }
+            previous_state = i+1;
+            count = 0;
+        }
+    }
+    state
+}

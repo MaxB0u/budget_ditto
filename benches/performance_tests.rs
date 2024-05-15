@@ -83,14 +83,14 @@ fn get_random_pkt_len() -> i32 {
     rng.gen_range(MIN_ETH_LEN..=MTU as i32)
 }
 
-fn rr_push() {
-    let pps = 1e6;
-    let mut pkts = get_eth_frames();
-    let rrs = round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len(), pps, SRC_IP_ADDR, DST_IP_ADDR);
-    for _ in 0..100 {
-        rrs.push(pkts.pop().expect("Failed getting frame"));
-    }
-}
+// fn rr_push() {
+//     let pps = 1e6;
+//     let mut pkts = get_eth_frames();
+//     let rrs = round_robin::RoundRobinScheduler::new(budget_ditto::pattern::PATTERN.len(), pps, SRC_IP_ADDR, DST_IP_ADDR);
+//     for _ in 0..100 {
+//         rrs.push(pkts.pop().expect("Failed getting frame"));
+//     }
+// }
 
 fn rr_pop() {
     // Pop empty queues
@@ -142,9 +142,9 @@ fn bench_receive(c: &mut Criterion) {
     c.bench_function("receive", |b| b.iter(|| receive(black_box(input))));
 }
 
-fn bench_rr_push(c: &mut Criterion) {
-    c.bench_function("rr_push", |b| b.iter(|| rr_push()));
-}
+// fn bench_rr_push(c: &mut Criterion) {
+//     c.bench_function("rr_push", |b| b.iter(|| rr_push()));
+// }
 
 fn bench_rr_pop(c: &mut Criterion) {
     c.bench_function("rr_pop", |b| b.iter(|| rr_pop()));
@@ -163,7 +163,7 @@ criterion_group!(gen, bench_get_pkts); // 8 micro sec
 criterion_group!(ch, bench_channel);
 criterion_group!(rx, bench_receive);
 criterion_group!(get_ch, bench_get_channel);
-criterion_group!(push, bench_rr_push);
+// criterion_group!(push, bench_rr_push);
 criterion_group!(pop, bench_rr_pop);
 criterion_group!(tt, bench_thread_timer);
 // benchmark_main!(tx, ch, rx);
