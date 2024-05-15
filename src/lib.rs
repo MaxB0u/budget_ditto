@@ -18,7 +18,7 @@ use toml::Value;
 
 // Rate is Packet/s * Bytes/packet
 //pub const PACKETS_PER_SECOND: f64 = 1e4; // 1e4 -> 100micros between packets
-const NUM_PKTS_TO_SAVE: f64 = 2e6;
+// const NUM_PKTS_TO_SAVE: f64 = 2e6;
 
 pub struct ChannelCustom {
     pub tx: Box<dyn datalink::DataLinkSender>,
@@ -32,8 +32,14 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
     //     println!("Device: {}", device.name);
     // }
     let pps = settings["general"]["pps"].as_float().expect("PPS setting not found");
+    let pad_log_interval = match settings["general"]["pad_log_interval"].as_float()  {
+        Some(p) => p,
+        None => 0.1*pps,
+    };
+    
     let save_data = settings["general"]["save"].as_bool().expect("Save setting not found");
     let is_local = settings["general"]["local"].as_bool().expect("Is local setting not found");
+    let is_log = settings["general"]["log"].as_bool().expect("Is log setting not found");
 
     let avg_pkt_size = pattern::PATTERN.iter().sum::<usize>() as f64 / pattern::PATTERN.len() as f64;
     println!("Sending {} packets/s with avg size of {}B => rate = {:.2} KB/s", pps, avg_pkt_size, pps*avg_pkt_size/1000.0);
@@ -63,13 +69,13 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
     let deobfuscate = settings["interface"]["deobfuscate"].as_str().expect("Obf input interface setting not found").to_string(); 
     let output = settings["interface"]["output"].as_str().expect("Output interface setting not found").to_string(); 
 
-    println!("Listening for Ethernet frames on interface {}...", input);
-    println!("Sending obfuscated Ethernet frames on interface {}...", obfuscate);
-    println!("Listening for obfuscated Ethernet frames on interface {}...", deobfuscate);
-    println!("Sending deobfuscated Ethernet frames on interface {}...", output);
-
-
-    println!("Send on specific cores = {}", is_send_isolated);
+    if is_log {
+        println!("Listening for Ethernet frames on interface {}...", input);
+        println!("Sending obfuscated Ethernet frames on interface {}...", obfuscate);
+        println!("Listening for obfuscated Ethernet frames on interface {}...", deobfuscate);
+        println!("Sending deobfuscated Ethernet frames on interface {}...", output);
+        println!("Send on specific cores = {}", is_send_isolated);
+    }
 
     // Spawn thread for obfuscating packets
     let obf_handle = thread::spawn(move || {
@@ -89,9 +95,9 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
         }
 
         if feature_flags::FF_NO_REORDERING {
-            obfuscate_data_in_order(&input, rx_queue, pps, save_data);
+            obfuscate_data_in_order(&input, rx_queue, pps, pad_log_interval, save_data);
         } else {
-            obfuscate_data(&input, rx_queue, pps, save_data);
+            obfuscate_data(&input, rx_queue, pps, pad_log_interval, true);
         }
     });
 
@@ -187,8 +193,8 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     
     //let interval = Duration::from_nanos(100);
     let mut current_q = 0;
-    let mut count: usize = 0;
-    let mut delays = vec![0; 2e6 as usize];
+    // let mut count: usize = 0;
+    // let mut delays = vec![0; 2e6 as usize];
     // Send Ethernet frames
     // for _ in 0..NUM_PKTS_TO_SAVE as usize {
     loop {
@@ -222,26 +228,26 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
             }
         }
         
-        if save_data {
-            let elapsed_time = last_iteration_time.elapsed();
-            //writeln!(file, "{},{}", count, elapsed_time.as_nanos()).expect("Failed to write to file");
-            delays[count] = elapsed_time.as_nanos()
-        }
-        count += 1;
+        // if save_data {
+        //     let elapsed_time = last_iteration_time.elapsed();
+        //     //writeln!(file, "{},{}", count, elapsed_time.as_nanos()).expect("Failed to write to file");
+        //     delays[count] = elapsed_time.as_nanos()
+        // }
+        // count += 1;
     }
 
-    println!("Done trasnmitting data!");
+    // println!("Done trasnmitting data!");
 
-    if save_data {
-        println!("Saving...");
-        for i in 0..delays.len() {
-            writeln!(file, "{},{}", i, delays[i]).expect("Failed to write to file");
-        }
-        println!("Data saved to file!");
-    }
+    // if save_data {
+    //     println!("Saving...");
+    //     for i in 0..delays.len() {
+    //         writeln!(file, "{},{}", i, delays[i]).expect("Failed to write to file");
+    //     }
+    //     println!("Data saved to file!");
+    // }
 }
 
-fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, save_data: bool) {
+fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, pad_log_interval: f64, save_data: bool) {
     let mut ch_rx = match get_channel(input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -273,9 +279,9 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
             }
         };
 
-        if count % pps as usize == 0 && count != 0{
+        if count % pad_log_interval as usize == 0 && count != 0{
             let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
-            // COuld reset it here if want to or else moving average
+            // Could reset it here if want to or else moving average
             let avg_pad = (*lock_pad) / count as f64 * pps;
             if save_data {
                 writeln!(file, "{},{}", count, avg_pad).expect("Failed to write to file");
@@ -364,7 +370,7 @@ fn write_params_to_file<T: std::fmt::Display>(overwrite: bool, interval: T) {
     writeln!(params_file, "pattern, {:?}", pattern::PATTERN).expect("Failed to write to file");
 }
 
-fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, save_data: bool) {
+fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, pad_log_interval: f64, save_data: bool) {
     let mut ch_rx = match get_channel(input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -397,7 +403,7 @@ fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRob
             }
         };
 
-        if count % pps as usize == 0 && count != 0{
+        if count % pad_log_interval as usize == 0 && count != 0{
             let lock_pad = round_robin::TOTAL_PAD.lock().unwrap();
             // COuld reset it here if want to or else moving average
             let avg_pad = (*lock_pad) / count as f64 * pps;

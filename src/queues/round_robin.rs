@@ -5,6 +5,9 @@ use crate::pattern;
 pub static TOTAL_PAD: Mutex<f64> = Mutex::new(0.0);
 
 pub struct RoundRobinScheduler {
+    // Change this to a hashmap of (length, Vec<queue>)
+    // Find queue to push with hashmap key. If many queues of that length
+    // then either keep track of last one pushed to, check their lengths or do a hash to decide which one
     pub queues: Vec<priority_queue::PriorityQueue>,
     pub current_q: usize,
     pub sorted_indices: Vec<usize>,
