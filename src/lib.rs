@@ -14,11 +14,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use toml::Value;
-//use libc::{c_int, c_void, size_t, sockaddr_ll, socket, AF_PACKET, SOCK_RAW, SOL_PACKET, PACKET_OUTGOING, sendto};
 
-// Rate is Packet/s * Bytes/packet
-//pub const PACKETS_PER_SECOND: f64 = 1e4; // 1e4 -> 100micros between packets
-// const NUM_PKTS_TO_SAVE: f64 = 2e6;
+const FACTOR_MEGABITS: f64 = 1e6;
+const BITS_PER_BYTE: f64 = 8.0;
 
 pub struct ChannelCustom {
     pub tx: Box<dyn datalink::DataLinkSender>,
@@ -27,11 +25,10 @@ pub struct ChannelCustom {
 
 pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
     
-    // let devices = Device::list()?;
-    // for device in &devices {
-    //     println!("Device: {}", device.name);
-    // }
-    let pps = settings["general"]["pps"].as_float().expect("PPS setting not found");
+    let rate = settings["general"]["rate"].as_float().expect("Rate setting not found");
+    let pps = rate / pattern::get_average_pattern_length() * FACTOR_MEGABITS / BITS_PER_BYTE;
+    // println!("{}", pps);
+
     let pad_log_interval = match settings["general"]["pad_log_interval"].as_float()  {
         Some(p) => p,
         None => 0.1*pps,
@@ -177,6 +174,7 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
 
     // Keep track of time
     let interval = Duration::from_nanos((1e9/pps) as u64);
+    println!("Sending packets in intervals of {:?}", interval);
 
     let mut file = OpenOptions::new()
         .write(true)
@@ -197,23 +195,11 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     // let mut delays = vec![0; 2e6 as usize];
     // Send Ethernet frames
     // for _ in 0..NUM_PKTS_TO_SAVE as usize {
+
+    let mut last_iteration_time = Instant::now();
     loop {
-        let last_iteration_time = Instant::now();
         let packet = rrs.pop(current_q);
         current_q = (current_q + 1) % pattern::PATTERN.len();
-
-        // Calculate time to sleep
-        let elapsed_time = last_iteration_time.elapsed();
-        let sleep_time = if elapsed_time < interval {
-            interval - elapsed_time
-        } else {
-            Duration::new(0, 0)
-        };
-        // Sleep for the remaining time until the next iteration
-        thread::sleep(sleep_time);
-        if elapsed_time > interval {
-            // println!("Ran out of time processing {:?} at pkt {}", elapsed_time, count);
-        }
 
         // println!("Transmit packet of length {}", packet.len());
         match ch_tx.tx.send_to(&packet, None) {
@@ -227,6 +213,20 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
                 println!("No packets to send");
             }
         }
+
+        // Calculate time to sleep
+        let elapsed_time = last_iteration_time.elapsed();
+        let sleep_time = if elapsed_time < interval {
+            interval - elapsed_time
+        } else {
+            Duration::new(0, 0)
+        };
+        // Sleep for the remaining time until the next iteration
+        thread::sleep(sleep_time);
+        if elapsed_time > interval {
+            // println!("Ran out of time processing {:?} at pkt {}", elapsed_time, count);
+        }
+        last_iteration_time = last_iteration_time + interval;
         
         // if save_data {
         //     let elapsed_time = last_iteration_time.elapsed();

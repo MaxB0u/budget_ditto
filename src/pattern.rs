@@ -3,11 +3,12 @@ TO BE MORE EFFICIENT ASSUME THAT PATTERN IS IN ASCENDING ORDER
 */
 
 // 86B overhead with VPN: 1428+86=1514B -> Or else fragment
-pub const PATTERN: [usize; 3] = [200, 1400, 1400];
+pub const PATTERN: [usize; 2] = [52,1400];
 
 // Largest size possible in pattern
 const MTU: usize = 1500;
 pub const CHAFF: [u8; MTU] = [0; MTU];
+const WRAP_AND_WIREGUARD_OVERHAD: f64 = 100.0;
 
 pub fn get_sorted_indices() -> Vec<usize> {
     // Gets sorted indices needed to match incoming packets and the corresponding queue index to choose
@@ -40,4 +41,12 @@ pub fn get_push_state_vector() -> Vec<(usize,usize)> {
         }
     }
     state
+}
+
+pub fn get_average_pattern_length() -> f64 {
+    let mut total = 0.0;
+    for p in PATTERN {
+        total += p as f64;
+    }
+    total / PATTERN.len() as f64 + WRAP_AND_WIREGUARD_OVERHAD
 }

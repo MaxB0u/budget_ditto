@@ -27,7 +27,7 @@ output="ens39"
 
 #Other parameters
 [general]
-pps=2e4
+rate=100.0 #MBps
 pad_log_interval=2e3
 # Do not save on tx/rx at same time, writing to file here might skew the results
 # Or would need to modify infinite loop in obfuscate_data()

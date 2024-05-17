@@ -35,7 +35,7 @@ impl RoundRobinScheduler {
                 self.queues[idx].push(packet); 
                 current_q = i;
                 
-                println!("Pushed to queue {}, length = {}", idx, length);
+                // println!("Pushed to queue {}, length = {}", idx, length);
                 is_pushed = true;
                 // Keep track of total padding]
                 let mut data = TOTAL_PAD.lock().unwrap();
