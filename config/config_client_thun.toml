@@ -1,7 +1,7 @@
 # IP addresses used by VPN
 [ip]
-src="10.6.0.1"
-dst="10.6.0.101"
+src="10.7.0.1"
+dst="10.7.0.2"
 
 # If CPU isolation is used
 [isolation]
@@ -17,12 +17,14 @@ core_deobfuscate=4
 # To move away from command line arguments
 [interface]
 input="eth0"
-obfuscate="wg1"
-deobfuscate="wg1"
+obfuscate="wg3"
+deobfuscate="wg3"
 output="eth1"
 
 #Other parameters
 [general]
-pps=5e4
-save=false
+rate=100.0 #MBps
+pad_log_interval=2e3
+save=false 
 local=false
+log=false

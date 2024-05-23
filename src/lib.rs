@@ -275,7 +275,9 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
                 //println!("Received length = {}", packet.len());
                 let idx = rrs.push(packet.to_vec(), &psv);
                 let mut previous_state = 0;
-                if idx > 0 {
+                if idx == pattern::PATTERN.len() {
+                    println!("Failed to push packet of length {}", packet.len());
+                } else if idx > 0 {
                     previous_state = psv[idx-1].1;
                 }
                 // We pushed in a state with many queues, adjust the next queue that will be pushed to in that state
