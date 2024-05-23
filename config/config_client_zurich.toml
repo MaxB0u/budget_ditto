@@ -16,10 +16,10 @@ core_deobfuscate=4
 # Interfaces to send and receive on
 # To move away from command line arguments
 [interface]
-input="ens38"
+input="eth0"
 obfuscate="wg3"
 deobfuscate="wg3"
-output="ens39"
+output="eth1"
 #input="ens39"
 #obfuscate="ens38"
 #deobfuscate="ens38"
