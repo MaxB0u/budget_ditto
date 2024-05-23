@@ -1,7 +1,7 @@
 # IP addresses used by VPN
 [ip]
-src="10.7.0.2"
-dst="10.7.0.1"
+src='10.7.0.2'
+dst='10.7.0.1'
 
 # If CPU isolation is used
 [isolation]
@@ -16,10 +16,10 @@ core_deobfuscate=4
 # Interfaces to send and receive on
 # To move away from command line arguments
 [interface]
-input="eth1"
-obfuscate="eth2"
-deobfuscate="eth2"
-output="eth3"
+input='eth1'
+obfuscate='eth2'
+deobfuscate='eth2'
+output='eth3'
 #input="ens39"
 #obfuscate="ens38"
 #deobfuscate="ens38"
