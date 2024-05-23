@@ -1,0 +1,36 @@
+# IP addresses used by VPN
+[ip]
+src="10.7.0.3"
+dst="10.7.0.1"
+
+# If CPU isolation is used
+[isolation]
+priority=99
+isolate_send=true  # Thread that sends the pattern, the most important to isolate
+core_send=2
+isolate_obfuscate=true
+core_obfuscate=3
+isolate_deobfuscate=false
+core_deobfuscate=4
+
+# Interfaces to send and receive on
+# To move away from command line arguments
+[interface]
+input="eth0"
+obfuscate="wg3"
+deobfuscate="wg3"
+output="eth1"
+#input="ens39"
+#obfuscate="ens38"
+#deobfuscate="ens38"
+#output="ens35"
+
+#Other parameters
+[general]
+rate=100.0 #MBps
+pad_log_interval=2e3
+# Do not save on tx/rx at same time, writing to file here might skew the results
+# Or would need to modify infinite loop in obfuscate_data()
+save=true 
+local=false
+log=false
