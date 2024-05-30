@@ -277,6 +277,7 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
                 let mut previous_state = 0;
                 if idx == pattern::PATTERN.len() {
                     println!("Failed to push packet of length {}", packet.len());
+                    continue;
                 } else if idx > 0 {
                     previous_state = psv[idx-1].1;
                 } 
