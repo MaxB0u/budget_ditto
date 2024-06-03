@@ -281,6 +281,7 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
                 } else if idx > 0 {
                     previous_state = psv[idx-1].1;
                 } 
+                println!("Pushed packet of length {}", packet.len());
                 // We pushed in a state with many queues, adjust the next queue that will be pushed to in that state
                 let modulus = psv[idx].1 - previous_state;
                 let next_queue = psv[idx].0 - previous_state + 1;

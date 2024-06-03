@@ -26,28 +26,26 @@ fn get_packet_type(packet: &[u8]) -> PacketType {
 }
 
 pub fn process_packet(packet: &[u8], ip_src: [u8;4], is_local: bool) -> Option<&[u8]> {
-    match unwrap_ipv4(packet, ip_src, is_local) {
-        Some(packet) => {
-            match get_packet_type(packet) {
-                PacketType::Chaff => None,
-                PacketType::Obfuscated => Some(deobfuscate(packet)),
-                //_ => None
-                }
-            },
-        None => None
+    if packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] != ip_src && !is_local 
+        || packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] == ip_src && is_local {
+        // Src ip is the same if local and different if not
+        assert!(packet.len() >= IP_HEADER_LEN, "Packet length must be at least {} bytes", IP_HEADER_LEN); 
+
+        match get_packet_type(packet) {
+            PacketType::Chaff => None,
+            PacketType::Obfuscated => Some(deobfuscate(packet)),
+            //_ => None
+        }
+
+    } else {
+        // Outgoing packet
+        None
     }
 }
 
 fn deobfuscate(packet: &[u8]) -> &[u8] {
     // Or else it would be an invalid packet anyway
     assert!(packet.len() >= IP_HEADER_LEN, "Packet length must be at least {} bytes", IP_HEADER_LEN); 
-    // let length: u16;
-
-    // unsafe {
-    //     let b1 = *packet.as_ptr().add(IP_LEN_OFFSET) as u16;
-    //     let b2 = *packet.as_ptr().add(IP_LEN_OFFSET+1) as u16;
-    //     length = (b1 << 8) | b2;
-    // }
 
     // Try to get length, only support IP packets
     let pkt = ipv4::Ipv4Packet::new(packet).unwrap();
@@ -55,29 +53,10 @@ fn deobfuscate(packet: &[u8]) -> &[u8] {
 
     if length <= packet.len() as u16 {
         // println!("{}, {:?}", pkt.get_destination(), packet);
-        &packet[..length as usize]
+        // Remove wrapped IP header, and truncate
+        &packet[IP_HEADER_LEN..length as usize]
     } else {
         // println!("Failed to read length for packet of length {}. Read {}. Returned raw packet.", packet.len() as u16, length);
-        // println!("{:?}", packet);
-        //println!("{:?}, {:?}", packet[10], packet[11]);
         packet
     }
-
-    
-    
 }
-
-fn unwrap_ipv4(packet: &[u8], ip_src: [u8;4], is_local: bool) -> Option<&[u8]> {
-    // Unefficient since reecive all outgoing and incoming packets (more processing for no reason)
-    // Better if could directly only receive incoming packets
-    if packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] != ip_src && !is_local 
-        || packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] == ip_src && is_local {
-        // Src ip is the same if local and different if not
-        assert!(packet.len() >= IP_HEADER_LEN, "Packet length must be at least {} bytes", IP_HEADER_LEN); 
-        Some(&packet[IP_HEADER_LEN..])
-    } else {
-        // Outgoing packet
-        None
-    }
-    
-} 
