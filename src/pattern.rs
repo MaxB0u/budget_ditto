@@ -10,6 +10,12 @@ pub const MTU: usize = 1500;
 pub const CHAFF: [u8; MTU] = [0; MTU];
 const WRAP_AND_WIREGUARD_OVERHAD: f64 = 100.0;
 
+pub const IP_HEADER_LEN: usize = 20;
+pub const IP_SRC_ADDR_OFFSET: usize = 12;
+pub const IP_ADDR_LEN: usize = 4;
+pub const IP_VERSION: u8 = 4;
+pub const IP_HEADER_OBF_TTL: u8 = 65;
+
 pub fn get_sorted_indices() -> Vec<usize> {
     // Gets sorted indices needed to match incoming packets and the corresponding queue index to choose
     let mut indices: Vec<usize> = (0..PATTERN.len()).collect();

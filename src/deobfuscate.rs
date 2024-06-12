@@ -1,11 +1,5 @@
 use pnet::packet::ipv4;
-
-// const ETHERNET_SRC_MAC_OFFSET: usize = 10;
-// const MAC_ADDR_LEN: usize = 6;
-const IP_HEADER_LEN: usize = 20;
-// const IP_LEN_OFFSET: usize = 2;
-const IP_SRC_ADDR_OFFSET: usize = 12;
-const IP_ADDR_LEN: usize = 4;
+use crate::pattern;
 
 enum PacketType {
     Chaff,          // Chaff -> All zeros. Look at byte after addresses (byte 13)
@@ -18,7 +12,7 @@ fn get_packet_type(packet: &[u8]) -> PacketType {
 
     // Ethertype or id is never 0 byte except in chaff packets
     
-    if packet[2] == 0_u8 && packet[3] == 0_u8 {
+    if packet[pattern::IP_HEADER_LEN + 2] == 0_u8 && packet[pattern::IP_HEADER_LEN + 3] == 0_u8 {
         return PacketType::Chaff;
     } else {
         return PacketType::Obfuscated;
@@ -26,10 +20,10 @@ fn get_packet_type(packet: &[u8]) -> PacketType {
 }
 
 pub fn process_packet(packet: &[u8], ip_src: [u8;4], is_local: bool) -> Option<&[u8]> {
-    if packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] != ip_src && !is_local 
-        || packet[IP_SRC_ADDR_OFFSET..IP_SRC_ADDR_OFFSET+IP_ADDR_LEN] == ip_src && is_local {
+    if packet[pattern::IP_SRC_ADDR_OFFSET..pattern::IP_SRC_ADDR_OFFSET+pattern::IP_ADDR_LEN] != ip_src && !is_local 
+        || packet[pattern::IP_SRC_ADDR_OFFSET..pattern::IP_SRC_ADDR_OFFSET+pattern::IP_ADDR_LEN] == ip_src && is_local {
         // Src ip is the same if local and different if not
-        assert!(packet.len() >= IP_HEADER_LEN, "Packet length must be at least {} bytes", IP_HEADER_LEN); 
+        assert!(packet.len() >= pattern::IP_HEADER_LEN, "Packet length must be at least {} bytes", pattern::IP_HEADER_LEN); 
 
         match get_packet_type(packet) {
             PacketType::Chaff => None,
@@ -45,7 +39,7 @@ pub fn process_packet(packet: &[u8], ip_src: [u8;4], is_local: bool) -> Option<&
 
 fn deobfuscate(packet: &[u8]) -> &[u8] {
     // Or else it would be an invalid packet anyway
-    assert!(packet.len() >= IP_HEADER_LEN, "Packet length must be at least {} bytes", IP_HEADER_LEN); 
+    assert!(packet.len() >= pattern::IP_HEADER_LEN, "Packet length must be at least {} bytes", pattern::IP_HEADER_LEN); 
 
     // Try to get length, only support IP packets
     let pkt = ipv4::Ipv4Packet::new(packet).unwrap();
@@ -53,8 +47,9 @@ fn deobfuscate(packet: &[u8]) -> &[u8] {
 
     if length <= packet.len() as u16 {
         // println!("{}, {:?}", pkt.get_destination(), packet);
+        println!("{}", pkt.get_source());
         // Remove wrapped IP header, and truncate
-        &packet[IP_HEADER_LEN..length as usize]
+        &packet[pattern::IP_HEADER_LEN..length as usize]
     } else {
         // println!("Failed to read length for packet of length {}. Read {}. Returned raw packet.", packet.len() as u16, length);
         packet

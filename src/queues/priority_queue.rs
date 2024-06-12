@@ -3,12 +3,7 @@ use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::Packet;
 use crossbeam::queue::ArrayQueue;
 use crate::pattern;
-// use pnet::packet::ethernet;
-// use pnet::util::MacAddr;
 
-const IP_HEADER_LENGTH: usize = 20;
-const IP_VERSION: u8 = 4;
-// const IP_PROTOCOL_IP_IN_IP: u8 = 4;
 const MAX_Q_LEN: usize = 1024;
 
 // const SRC_IP_ADDR: [u8;4] = [10, 9, 0, 2];
@@ -32,7 +27,7 @@ impl PriorityQueue {
     pub fn push(&self, packet: Vec<u8>) {
         // Pad when you push to be more efficient when you pop
         let wrapped_packet = self.wrap_in_ipv4(packet);
-        let padded_data = pad(wrapped_packet, self.length + IP_HEADER_LENGTH);
+        let padded_data = pad(wrapped_packet, self.length + pattern::IP_HEADER_LEN);
         if let Err(_) = self.queue.push(padded_data) {
             // println!("Queue {} full, length = {}, error pushing", self.length, self.queue.len());
         }
@@ -72,14 +67,14 @@ impl PriorityQueue {
         let initial_len = data.len();
         let mut data = data;
         
-        data.resize(initial_len + IP_HEADER_LENGTH, 0);
-        data.rotate_right(IP_HEADER_LENGTH);
+        data.resize(initial_len + pattern::IP_HEADER_LEN, 0);
+        data.rotate_right(pattern::IP_HEADER_LEN);
         let mut packet = ipv4::MutableIpv4Packet::new(&mut data).unwrap();
     
         // Set the IP header fields
-        packet.set_version(IP_VERSION);
-        packet.set_header_length((IP_HEADER_LENGTH/4) as u8);
-        packet.set_total_length(((initial_len + IP_HEADER_LENGTH)) as u16); // Set the total length of the packet
+        packet.set_version(pattern::IP_VERSION);
+        packet.set_header_length((pattern::IP_HEADER_LEN/4) as u8);
+        packet.set_total_length(((initial_len + pattern::IP_HEADER_LEN)) as u16); // Set the total length of the packet
         //packet.set_identification(1234);
         packet.set_ttl(64);
         packet.set_next_level_protocol(IpNextHeaderProtocols::IpIp); 
@@ -104,14 +99,14 @@ fn pad(data: Vec<u8>, target_length: usize) -> Vec<u8> {
 fn get_chaff(length: usize, src_addr: [u8;4], dst_addr: [u8;4]) -> Vec<u8> {
     let mut data = pattern::CHAFF.to_vec();
     
-    data.resize(length + IP_HEADER_LENGTH, 0);
-    data.rotate_right(IP_HEADER_LENGTH);
+    data.resize(length + pattern::IP_HEADER_LEN, 0);
+    data.rotate_right(pattern::IP_HEADER_LEN);
     let mut packet = ipv4::MutableIpv4Packet::new(&mut data).unwrap();
 
     // Set the IP header fields
-    packet.set_version(IP_VERSION);
-    packet.set_header_length((IP_HEADER_LENGTH/4) as u8);
-    packet.set_total_length(((length + IP_HEADER_LENGTH)) as u16); // Set the total length of the packet
+    packet.set_version(pattern::IP_VERSION);
+    packet.set_header_length((pattern::IP_HEADER_LEN/4) as u8);
+    packet.set_total_length(((length + pattern::IP_HEADER_LEN)) as u16); // Set the total length of the packet
     //packet.set_identification(1234);
     packet.set_ttl(64);
     packet.set_next_level_protocol(IpNextHeaderProtocols::IpIp); 

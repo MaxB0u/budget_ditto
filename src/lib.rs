@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use toml::Value;
+use pnet::packet::Packet;
 
 const FACTOR_MEGABITS: f64 = 1e6;
 const BITS_PER_BYTE: f64 = 8.0;
@@ -272,16 +273,21 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
+                if check_flag_ipv4(packet) {
+                    // Packet to deobf, not to obf
+                    continue;
+                }
+                let packet = set_flag_ipv4(packet.to_vec());
                 // println!("Received length = {}", packet.len());
-                let idx = rrs.push(packet.to_vec(), &psv);
+                let idx = rrs.push(packet, &psv);
                 let mut previous_state = 0;
                 if idx == pattern::PATTERN.len() {
-                    println!("Failed to push packet of length {}", packet.len());
+                    println!("Failed to push packet");
                     continue;
                 } else if idx > 0 {
                     previous_state = psv[idx-1].1;
                 } 
-                println!("Pushed packet of length {}", packet.len());
+                // println!("Pushed packet of length {}", packet.len());
                 // We pushed in a state with many queues, adjust the next queue that will be pushed to in that state
                 let modulus = psv[idx].1 - previous_state;
                 let next_queue = psv[idx].0 - previous_state + 1;
@@ -324,7 +330,7 @@ fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
-                match deobfuscate::process_packet(packet, ip_src, is_local) {
+                match deobfuscate::process_packet(&packet, ip_src, is_local) {
                     // Real packets
                     Some(packet) => {
                         //println!("Deobfuscated packet with length = {}", packet.len());
@@ -430,4 +436,20 @@ fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRob
 
         count += 1;
     }
+}
+
+fn set_flag_ipv4(data: Vec<u8>) -> Vec<u8> {
+    let mut data = data;
+    let mut packet = pnet::packet::ipv4::MutableIpv4Packet::new(&mut data).unwrap();
+
+    // The first bit of the flags is always 0 so set it when obfuscate and only deobf if set
+    packet.set_ttl(pattern::IP_HEADER_OBF_TTL);
+    packet.set_checksum(pnet::packet::ipv4::checksum(&packet.to_immutable()));
+    packet.packet().to_vec()
+}
+
+fn check_flag_ipv4(data: &[u8]) -> bool {
+    let packet = pnet::packet::ipv4::Ipv4Packet::new(data).unwrap();
+
+    packet.get_ttl() == pattern::IP_HEADER_OBF_TTL
 }
