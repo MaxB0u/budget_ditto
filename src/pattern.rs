@@ -14,7 +14,7 @@ pub const IP_HEADER_LEN: usize = 20;
 pub const IP_SRC_ADDR_OFFSET: usize = 12;
 pub const IP_ADDR_LEN: usize = 4;
 pub const IP_VERSION: u8 = 4;
-pub const IP_HEADER_OBF_TTL: u8 = 65;
+pub const OBF_ETHERTYPE: pnet::packet::ethernet::EtherType = pnet::packet::ethernet::EtherType(2049);
 
 pub fn get_sorted_indices() -> Vec<usize> {
     // Gets sorted indices needed to match incoming packets and the corresponding queue index to choose

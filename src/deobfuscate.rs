@@ -45,9 +45,9 @@ fn deobfuscate(packet: &[u8]) -> &[u8] {
     let pkt = ipv4::Ipv4Packet::new(packet).unwrap();
     let length= pkt.get_total_length();
 
-    if length <= packet.len() as u16 {
+    if length <= packet.len() as u16 && length > pattern::IP_HEADER_LEN as u16 {
         // println!("{}, {:?}", pkt.get_destination(), packet);
-        println!("{}", pkt.get_source());
+        // println!("{}", pkt.get_source());
         // Remove wrapped IP header, and truncate
         &packet[pattern::IP_HEADER_LEN..length as usize]
     } else {

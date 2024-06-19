@@ -14,7 +14,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use toml::Value;
-use pnet::packet::Packet;
 
 const FACTOR_MEGABITS: f64 = 1e6;
 const BITS_PER_BYTE: f64 = 8.0;
@@ -22,6 +21,7 @@ const BITS_PER_BYTE: f64 = 8.0;
 pub struct ChannelCustom {
     pub tx: Box<dyn datalink::DataLinkSender>,
     pub rx: Box<dyn datalink::DataLinkReceiver>,
+    pub mac_addr: pnet::util::MacAddr,
 }
 
 pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
@@ -149,6 +149,8 @@ pub fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
             Some(inter) => inter,
             None => return Err("Failed to find network interface"),
         };
+    
+    let mac_addr = interface.mac.unwrap();
 
     // Create a channel to receive Ethernet frames
     let (tx, rx) = match datalink::channel(&interface, Default::default()) {
@@ -160,6 +162,7 @@ pub fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
     let ch = ChannelCustom{ 
         tx, 
         rx,
+        mac_addr,
     };
 
     Ok(ch)
@@ -267,31 +270,29 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
 
     let mut count = 0;
     let mut psv = pattern::get_push_state_vector();
-    println!("psv: {:?}", psv);
+    println!("src mac: {:?}", ch_rx.mac_addr);
     // Process received Ethernet frames
     loop { 
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
-                if check_flag_ipv4(packet) {
-                    // Packet to deobf, not to obf
-                    continue;
+                if check_src_eth(packet, ch_rx.mac_addr) {
+                    // let pkt_len = packet.len();
+                    // println!("Received length = {}", packet.len());
+                    let idx = rrs.push(packet.to_vec(), &psv);
+                    let mut previous_state = 0;
+                    if idx == pattern::PATTERN.len() {
+                        // println!("Failed to push packet of length {}", pkt_len);
+                        continue;
+                    } else if idx > 0 {
+                        previous_state = psv[idx-1].1;
+                    } 
+                    // println!("Pushed packet of length {}", packet.len());
+                    // We pushed in a state with many queues, adjust the next queue that will be pushed to in that state
+                    let modulus = psv[idx].1 - previous_state;
+                    let next_queue = psv[idx].0 - previous_state + 1;
+                    psv[idx].0 = next_queue % modulus + previous_state;
                 }
-                let packet = set_flag_ipv4(packet.to_vec());
-                // println!("Received length = {}", packet.len());
-                let idx = rrs.push(packet, &psv);
-                let mut previous_state = 0;
-                if idx == pattern::PATTERN.len() {
-                    println!("Failed to push packet");
-                    continue;
-                } else if idx > 0 {
-                    previous_state = psv[idx-1].1;
-                } 
-                // println!("Pushed packet of length {}", packet.len());
-                // We pushed in a state with many queues, adjust the next queue that will be pushed to in that state
-                let modulus = psv[idx].1 - previous_state;
-                let next_queue = psv[idx].0 - previous_state + 1;
-                psv[idx].0 = next_queue % modulus + previous_state;
             },
             Err(e) => {
                 eprintln!("Error receiving frame: {}", e);
@@ -333,7 +334,7 @@ fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [
                 match deobfuscate::process_packet(&packet, ip_src, is_local) {
                     // Real packets
                     Some(packet) => {
-                        //println!("Deobfuscated packet with length = {}", packet.len());
+                        // println!("Deobfuscated packet with length = {}", packet.len());
                         ch_tx.tx.send_to(&packet, None);
                     }, 
                     // Chaff
@@ -347,25 +348,6 @@ fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [
         };
     }
 }
-
-// pub fn get_env_var_f64(name: &str) -> Result<f64, &'static str> {
-//     let var = match env::var(name) {
-//         Ok(var) => {
-//             match var.parse::<f64>() {
-//                 Ok(var) => {
-//                     var
-//                 },
-//                 Err(_) => {
-//                     return Err("Error parsing env variable string");
-//                 }
-//             }
-//         },
-//         Err(_) => {
-//             return Err("Error getting env vairable");
-//         },
-//     };
-//     Ok(var)
-// }
 
 fn parse_ip(ip_str: String) -> [u8;4] {
     let ip_addr = match ip_str.parse::<net::Ipv4Addr>() {
@@ -438,18 +420,19 @@ fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRob
     }
 }
 
-fn set_flag_ipv4(data: Vec<u8>) -> Vec<u8> {
-    let mut data = data;
-    let mut packet = pnet::packet::ipv4::MutableIpv4Packet::new(&mut data).unwrap();
+// fn set_flag_ipv4(data: Vec<u8>) -> Vec<u8> {
+//     let mut data = data;
+//     let mut packet = pnet::packet::ethernet::MutableEthernetPacket::new(&mut data).unwrap();
 
-    // The first bit of the flags is always 0 so set it when obfuscate and only deobf if set
-    packet.set_ttl(pattern::IP_HEADER_OBF_TTL);
-    packet.set_checksum(pnet::packet::ipv4::checksum(&packet.to_immutable()));
-    packet.packet().to_vec()
-}
+//     // The first bit of the flags is always 0 so set it when obfuscate and only deobf if set
+//     packet.set_ethertype(pattern::OBF_ETHERTYPE);
+//     packet.set_source(pnet::util::MacAddr::new(0x46,0x11,0x61, 0x24, 0xbe, 0xa0));
+//     packet.packet().to_vec()
+// }
 
-fn check_flag_ipv4(data: &[u8]) -> bool {
-    let packet = pnet::packet::ipv4::Ipv4Packet::new(data).unwrap();
+fn check_src_eth(data: &[u8], mac_addr: pnet::util::MacAddr) -> bool {
+    let packet = pnet::packet::ethernet::EthernetPacket::new(data).unwrap();
+    // println!("{}", packet.get_source());
 
-    packet.get_ttl() == pattern::IP_HEADER_OBF_TTL
+    packet.get_source() == mac_addr
 }
