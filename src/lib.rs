@@ -21,7 +21,7 @@ const BITS_PER_BYTE: f64 = 8.0;
 pub struct ChannelCustom {
     pub tx: Box<dyn datalink::DataLinkSender>,
     pub rx: Box<dyn datalink::DataLinkReceiver>,
-    pub mac_addr: pnet::util::MacAddr,
+    pub mac_addr: Option<pnet::util::MacAddr>,
 }
 
 pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
@@ -150,7 +150,7 @@ pub fn get_channel(interface_name: &str) -> Result<ChannelCustom, &'static str>{
             None => return Err("Failed to find network interface"),
         };
     
-    let mac_addr = interface.mac.unwrap();
+    let mac_addr = interface.mac;
 
     // Create a channel to receive Ethernet frames
     let (tx, rx) = match datalink::channel(&interface, Default::default()) {
@@ -270,13 +270,14 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
 
     let mut count = 0;
     let mut psv = pattern::get_push_state_vector();
-    println!("src mac: {:?}", ch_rx.mac_addr);
+    let mac_addr = ch_rx.mac_addr.unwrap();
+    println!("src mac: {:?}", mac_addr);
     // Process received Ethernet frames
     loop { 
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
-                if check_src_eth(packet, ch_rx.mac_addr) {
+                if check_src_eth(packet, mac_addr) {
                     // let pkt_len = packet.len();
                     // println!("Received length = {}", packet.len());
                     let idx = rrs.push(packet.to_vec(), &psv);
