@@ -62,16 +62,17 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
 
     let priority = settings["isolation"]["priority"].as_integer().expect("Thread priority setting not found") as i32; 
 
-    let input = settings["interface"]["input"].as_str().expect("Input interface setting not found").to_string(); 
-    let obfuscate = settings["interface"]["obfuscate"].as_str().expect("Obf output interface setting not found").to_string(); 
-    let deobfuscate = settings["interface"]["deobfuscate"].as_str().expect("Obf input interface setting not found").to_string(); 
-    let output = settings["interface"]["output"].as_str().expect("Output interface setting not found").to_string(); 
+    let interface_obfuscate = settings["interface"]["no_obf"].as_str().expect("Unobfuscated interface setting not found").to_string(); 
+    let interface_transmit: String = settings["interface"]["obf"].as_str().expect("Obfuscated interface setting not found").to_string(); 
+    let interface_deobfuscate_input = settings["interface"]["obf"].as_str().expect("Unobfuscated interface setting not found").to_string(); 
+    let interface_deobfuscate_output: String = settings["interface"]["no_obf"].as_str().expect("Obfuscated interface setting not found").to_string(); 
+    let src_device: String = settings["interface"]["src_device"].as_str().expect("Obfuscated interface setting not found").to_string(); 
 
     if is_log {
-        println!("Listening for Ethernet frames on interface {}...", input);
-        println!("Sending obfuscated Ethernet frames on interface {}...", obfuscate);
-        println!("Listening for obfuscated Ethernet frames on interface {}...", deobfuscate);
-        println!("Sending deobfuscated Ethernet frames on interface {}...", output);
+        println!("Listening for Ethernet frames on interface {}...", interface_obfuscate);
+        println!("Sending obfuscated Ethernet frames on interface {}...", interface_transmit);
+        println!("Listening for obfuscated Ethernet frames on interface {}...", interface_deobfuscate_input);
+        println!("Sending deobfuscated Ethernet frames on interface {}...", interface_deobfuscate_output);
         println!("Send on specific cores = {}", is_send_isolated);
     }
 
@@ -91,11 +92,10 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
                 }
             }
         }
-
         if feature_flags::FF_NO_REORDERING {
-            obfuscate_data_in_order(&input, rx_queue, pps, pad_log_interval, save_data);
+            obfuscate_data_in_order(&interface_obfuscate, rx_queue, pps, pad_log_interval, save_data);
         } else {
-            obfuscate_data(&input, rx_queue, pps, pad_log_interval, true);
+            obfuscate_data(&interface_obfuscate, &src_device, rx_queue, pps, pad_log_interval, save_data);
         }
     });
 
@@ -116,7 +116,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        transmit(&obfuscate, tx_queue, pps, save_data);
+        transmit(&interface_transmit, tx_queue, pps, save_data);
     });
 
     // Spawn thread for sending deobfuscating and forwarding packets
@@ -129,7 +129,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        deobfuscate_data(&deobfuscate, &output, ip_src, is_local);
+        deobfuscate_data(&interface_deobfuscate_input, &interface_deobfuscate_output, ip_src, is_local);
     });
 
     // Wait for both threads to finish
@@ -251,8 +251,13 @@ fn transmit(obf_output_interface: &str, rrs: Arc<round_robin::RoundRobinSchedule
     // }
 }
 
-fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, pad_log_interval: f64, save_data: bool) {
+fn obfuscate_data(input_interface: &str, src_device: &str, rrs: Arc<round_robin::RoundRobinScheduler>, pps: f64, pad_log_interval: f64, save_data: bool) {
     let mut ch_rx = match get_channel(input_interface) {
+        Ok(rx) => rx,
+        Err(error) => panic!("Error getting channel: {error}"),
+    };
+
+    let ch_src = match get_channel(src_device) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
     };
@@ -271,13 +276,14 @@ fn obfuscate_data(input_interface: &str, rrs: Arc<round_robin::RoundRobinSchedul
     let mut count = 0;
     let mut psv = pattern::get_push_state_vector();
     let mac_addr = ch_rx.mac_addr.unwrap();
-    println!("src mac: {:?}", mac_addr);
+    let src_mac = ch_src.mac_addr.unwrap();
+    println!("src mac: {:?} or {:?}", mac_addr, src_mac);
     // Process received Ethernet frames
     loop { 
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
-                if check_src_eth(packet, mac_addr) {
+                if check_src_eth(packet, mac_addr, src_mac) {
                     // let pkt_len = packet.len();
                     // println!("Received length = {}", packet.len());
                     let idx = rrs.push(packet.to_vec(), &psv);
@@ -392,13 +398,17 @@ fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRob
 
     let mut count = 0;
     let mut current_q = 0;
+    let mac_addr = ch_rx.mac_addr.unwrap();
+    println!("src mac: {:?}", mac_addr);
     // Process received Ethernet frames
     loop { 
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
                 //println!("Received length = {}", packet.len());
-                current_q = rrs.push_no_reorder(packet.to_vec(), current_q);
+                if check_src_eth(packet, mac_addr, mac_addr) {
+                    current_q = rrs.push_no_reorder(packet.to_vec(), current_q);
+                }
             },
             Err(e) => {
                 eprintln!("Error receiving frame: {}", e);
@@ -421,19 +431,31 @@ fn obfuscate_data_in_order(input_interface: &str, rrs: Arc<round_robin::RoundRob
     }
 }
 
-// fn set_flag_ipv4(data: Vec<u8>) -> Vec<u8> {
-//     let mut data = data;
-//     let mut packet = pnet::packet::ethernet::MutableEthernetPacket::new(&mut data).unwrap();
-
-//     // The first bit of the flags is always 0 so set it when obfuscate and only deobf if set
-//     packet.set_ethertype(pattern::OBF_ETHERTYPE);
-//     packet.set_source(pnet::util::MacAddr::new(0x46,0x11,0x61, 0x24, 0xbe, 0xa0));
-//     packet.packet().to_vec()
-// }
-
-fn check_src_eth(data: &[u8], mac_addr: pnet::util::MacAddr) -> bool {
+fn check_src_eth(data: &[u8], mac_addr: pnet::util::MacAddr, src_device_mac: pnet::util::MacAddr) -> bool {
     let packet = pnet::packet::ethernet::EthernetPacket::new(data).unwrap();
     // println!("{}", packet.get_source());
+    let data_mac = packet.get_source();
 
-    packet.get_source() == mac_addr
+    data_mac == mac_addr || data_mac == src_device_mac
 }
+
+// If set ethertype, not protocols not recognized by other devices and fails
+// Use a src mac to obfuscate from instead
+// Only obfuscates from one address in the LAN. Can set the address of the router if comes from other LAN.
+
+// fn set_eth_type(data: Vec<u8>) -> Vec<u8> {
+//     let mut data = data;
+//     let mut packet = pnet::packet::ethernet::MutableEthernetPacket::new(&mut data).unwrap();
+//     // println!("{}", packet.get_source());
+
+//     packet.set_ethertype(pattern::OBF_ETHERTYPE);
+    
+//     data
+// }
+
+// fn check_eth_type(data: &[u8]) -> bool {
+//     let packet = pnet::packet::ethernet::EthernetPacket::new(data).unwrap();
+//     // println!("{}", packet.get_source());
+
+//     packet.get_ethertype() == pattern::OBF_ETHERTYPE
+// }

@@ -1,0 +1,33 @@
+# IP addresses used by VPN
+[ip]
+src='10.10.10.10'
+dst='10.10.12.13'
+
+# If CPU isolation is used
+[isolation]
+priority=99
+isolate_send=true  # Thread that sends the pattern, the most important to isolate
+core_send=2
+isolate_obfuscate=true
+core_obfuscate=3
+isolate_deobfuscate=false
+core_deobfuscate=4
+
+# Interfaces to send and receive on
+# To move away from command line arguments
+[interface]
+no_obf='veth_0'
+obf='veth_1'
+# The source device to obfuscate from. We will only obfuscate frames that have src mac equal to the mac of this device
+# Could be a router or a device on the LAN
+src_device='veth0' 
+
+#Other parameters
+[general]
+rate=100.0 #MBps
+pad_log_interval=2e3
+# Do not save on tx/rx at same time, writing to file here might skew the results
+# Or would need to modify infinite loop in obfuscate_data()
+save=true 
+local=false
+log=true
