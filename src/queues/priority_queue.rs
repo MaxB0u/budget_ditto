@@ -31,7 +31,7 @@ impl PriorityQueue {
         if let Err(_) = self.queue.push(padded_data) {
             // println!("Queue {} full, length = {}, error pushing", self.length, self.queue.len());
         }
-        //println!("Queue length {}", self.queue.len());
+        // println!("Queue length {}", self.queue.len());
     }
 
     // pub fn push_no_reorder(&self, packet: Vec<u8>, is_chaff: bool) {

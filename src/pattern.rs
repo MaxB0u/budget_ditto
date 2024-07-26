@@ -3,7 +3,7 @@ TO BE MORE EFFICIENT ASSUME THAT PATTERN IS IN ASCENDING ORDER
 */
 
 // 86B overhead with VPN: 1428+86=1514B -> Or else fragment
-pub const PATTERN: [usize; 3] = [467, 933, 1400];
+pub const PATTERN: [usize; 3] = [200, 1400, 1400];
 
 // Largest size possible in pattern
 pub const MTU: usize = 1500;

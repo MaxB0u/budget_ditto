@@ -2,6 +2,7 @@ pub mod pattern;
 mod deobfuscate;
 pub mod queues;
 mod feature_flags;
+pub mod hardware_obf;
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -38,6 +39,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
     let save_data = settings["general"]["save"].as_bool().expect("Save setting not found");
     let is_local = settings["general"]["local"].as_bool().expect("Is local setting not found");
     let is_log = settings["general"]["log"].as_bool().expect("Is log setting not found");
+    let is_hw_obfuscation = settings["general"]["hw_obfuscation"].as_bool().expect("Obfuscation Mode setting not found");
 
     let avg_pkt_size = pattern::PATTERN.iter().sum::<usize>() as f64 / pattern::PATTERN.len() as f64;
     println!("Sending {} packets/s with avg size of {}B => rate = {:.2} KB/s", pps, avg_pkt_size, pps*avg_pkt_size/1000.0);
@@ -74,6 +76,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
         println!("Listening for obfuscated Ethernet frames on interface {}...", interface_deobfuscate_input);
         println!("Sending deobfuscated Ethernet frames on interface {}...", interface_deobfuscate_output);
         println!("Send on specific cores = {}", is_send_isolated);
+        println!("Using hardware obfuscation = {}", is_hw_obfuscation);
     }
 
     // Spawn thread for obfuscating packets
@@ -129,7 +132,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        deobfuscate_data(&interface_deobfuscate_input, &interface_deobfuscate_output, ip_src, is_local);
+        deobfuscate_data(&interface_deobfuscate_input, &interface_deobfuscate_output, ip_src, is_local, is_hw_obfuscation);
     });
 
     // Wait for both threads to finish
@@ -277,7 +280,7 @@ fn obfuscate_data(input_interface: &str, src_device: &str, rrs: Arc<round_robin:
     let mut psv = pattern::get_push_state_vector();
     let mac_addr = ch_rx.mac_addr.unwrap();
     let src_mac = ch_src.mac_addr.unwrap();
-    println!("src mac: {:?} or {:?}", mac_addr, src_mac);
+    // println!("src mac: {:?} or {:?}", mac_addr, src_mac);
     // Process received Ethernet frames
     loop { 
         match ch_rx.rx.next() {
@@ -294,6 +297,7 @@ fn obfuscate_data(input_interface: &str, src_device: &str, rrs: Arc<round_robin:
                     } else if idx > 0 {
                         previous_state = psv[idx-1].1;
                     } 
+                    // println!("Pushed packet to queue {}", idx);
                     // println!("Pushed packet of length {}", packet.len());
                     // We pushed in a state with many queues, adjust the next queue that will be pushed to in that state
                     let modulus = psv[idx].1 - previous_state;
@@ -322,7 +326,7 @@ fn obfuscate_data(input_interface: &str, src_device: &str, rrs: Arc<round_robin:
     }
 }
 
-fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [u8;4], is_local: bool) {
+fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [u8;4], is_local: bool, is_hw_obfuscation: bool) {
     let mut ch_rx = match get_channel(obf_input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -338,10 +342,10 @@ fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [
         match ch_rx.rx.next() {
             // process_packet(packet, &mut scheduler),
             Ok(packet) =>  {
-                match deobfuscate::process_packet(&packet, ip_src, is_local) {
+                match deobfuscate::process_packet(&packet, ip_src, is_local, is_hw_obfuscation) {
                     // Real packets
                     Some(packet) => {
-                        // println!("Deobfuscated packet with length = {}", packet.len());
+                        println!("Deobfuscated packet with length = {}", packet.len());
                         ch_tx.tx.send_to(&packet, None);
                     }, 
                     // Chaff
