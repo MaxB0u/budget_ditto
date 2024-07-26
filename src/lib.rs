@@ -40,6 +40,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
     let is_local = settings["general"]["local"].as_bool().expect("Is local setting not found");
     let is_log = settings["general"]["log"].as_bool().expect("Is log setting not found");
     let is_hw_obfuscation = settings["general"]["hw_obfuscation"].as_bool().expect("Obfuscation Mode setting not found");
+    let is_backbone = settings["general"]["backbone"].as_bool().expect("Is backbone setting not found");
 
     let avg_pkt_size = pattern::PATTERN.iter().sum::<usize>() as f64 / pattern::PATTERN.len() as f64;
     println!("Sending {} packets/s with avg size of {}B => rate = {:.2} KB/s", pps, avg_pkt_size, pps*avg_pkt_size/1000.0);
@@ -77,6 +78,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
         println!("Sending deobfuscated Ethernet frames on interface {}...", interface_deobfuscate_output);
         println!("Send on specific cores = {}", is_send_isolated);
         println!("Using hardware obfuscation = {}", is_hw_obfuscation);
+        println!("Running as a backbone router = {}", is_backbone);
     }
 
     // Spawn thread for obfuscating packets
@@ -132,7 +134,7 @@ pub fn run(settings: Value) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        deobfuscate_data(&interface_deobfuscate_input, &interface_deobfuscate_output, ip_src, is_local, is_hw_obfuscation);
+        deobfuscate_data(&interface_deobfuscate_input, &interface_deobfuscate_output, ip_src, is_local, is_hw_obfuscation, is_backbone);
     });
 
     // Wait for both threads to finish
@@ -326,7 +328,7 @@ fn obfuscate_data(input_interface: &str, src_device: &str, rrs: Arc<round_robin:
     }
 }
 
-fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [u8;4], is_local: bool, is_hw_obfuscation: bool) {
+fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [u8;4], is_local: bool, is_hw_obfuscation: bool, is_backbone: bool) {
     let mut ch_rx = match get_channel(obf_input_interface) {
         Ok(rx) => rx,
         Err(error) => panic!("Error getting channel: {error}"),
@@ -337,6 +339,10 @@ fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [
         Err(error) => panic!("Error getting channel: {error}"),
     };
 
+
+    let mac_addr = ch_tx.mac_addr.unwrap().octets();
+    // println!("CHange mac to {:?}", mac_addr);
+
     // Process received Ethernet frames
     loop {
         match ch_rx.rx.next() {
@@ -345,8 +351,12 @@ fn deobfuscate_data(obf_input_interface: &str, output_interface: &str, ip_src: [
                 match deobfuscate::process_packet(&packet, ip_src, is_local, is_hw_obfuscation) {
                     // Real packets
                     Some(packet) => {
-                        println!("Deobfuscated packet with length = {}", packet.len());
-                        ch_tx.tx.send_to(&packet, None);
+                        // println!("Deobfuscated packet with length = {}", packet.len());
+                        if is_backbone {
+                            ch_tx.tx.send_to(&process_backbone_packet(packet, mac_addr), None);
+                        } else {
+                            ch_tx.tx.send_to(&packet, None);
+                        }
                     }, 
                     // Chaff
                     None => continue,
@@ -443,23 +453,16 @@ fn check_src_eth(data: &[u8], mac_addr: pnet::util::MacAddr, src_device_mac: pne
     data_mac == mac_addr || data_mac == src_device_mac
 }
 
-// If set ethertype, not protocols not recognized by other devices and fails
-// Use a src mac to obfuscate from instead
-// Only obfuscates from one address in the LAN. Can set the address of the router if comes from other LAN.
+fn process_backbone_packet(packet: &[u8], mac_addr: [u8; 6]) -> Vec<u8> {
+    // Set ip dst and mac for deobfuscated packets that should be forwarded
+    // assume the destination is zurich and the destination ip address is already in the 10.7.0.0/24 subnet
+    let mut pkt = vec![0u8; packet.len()]; 
+    pkt.clone_from_slice(packet);
 
-// fn set_eth_type(data: Vec<u8>) -> Vec<u8> {
-//     let mut data = data;
-//     let mut packet = pnet::packet::ethernet::MutableEthernetPacket::new(&mut data).unwrap();
-//     // println!("{}", packet.get_source());
-
-//     packet.set_ethertype(pattern::OBF_ETHERTYPE);
+    pkt[pattern::IP_HEADER_LEN+pattern::ETH_MAC_SRC_ADDR_OFFSET.. pattern::IP_HEADER_LEN+pattern::ETH_MAC_SRC_ADDR_OFFSET+pattern::MAC_ADDR_LEN]
+        .copy_from_slice(&mac_addr);
     
-//     data
-// }
-
-// fn check_eth_type(data: &[u8]) -> bool {
-//     let packet = pnet::packet::ethernet::EthernetPacket::new(data).unwrap();
-//     // println!("{}", packet.get_source());
-
-//     packet.get_ethertype() == pattern::OBF_ETHERTYPE
-// }
+    pkt[pattern::IP_HEADER_LEN+pattern::ETH_HEADER_LEN+pattern::IP_DST_ADDR_OFFSET..pattern::IP_HEADER_LEN+pattern::ETH_HEADER_LEN+pattern::IP_DST_ADDR_OFFSET+pattern::IP_ADDR_LEN]
+        .copy_from_slice(&pattern::IP_NEXT_HOP);
+    pkt
+}

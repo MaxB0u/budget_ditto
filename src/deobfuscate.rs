@@ -2,6 +2,7 @@ use pnet::packet::ipv4;
 use crate::pattern;
 use crate::hardware_obf;
 
+
 enum PacketType {
     Chaff,          // Chaff -> All zeros. Look at byte after addresses (byte 13)
     Obfuscated,     // Obfuscated -> Other
@@ -41,8 +42,6 @@ pub fn process_packet(packet: &[u8], ip_src: [u8;4], is_local: bool, is_hw_obfus
 fn deobfuscate(packet: &[u8], is_hw_obfuscation: bool) -> &[u8] {
     // Or else it would be an invalid packet anyway
     assert!(packet.len() >= pattern::IP_HEADER_LEN, "Packet length must be at least {} bytes", pattern::IP_HEADER_LEN); 
-
-    
 
     // Try to get length, only support IP packets
     let pkt = ipv4::Ipv4Packet::new(packet).unwrap();

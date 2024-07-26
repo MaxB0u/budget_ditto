@@ -12,9 +12,16 @@ const WRAP_AND_WIREGUARD_OVERHAD: f64 = 100.0;
 
 pub const IP_HEADER_LEN: usize = 20;
 pub const IP_SRC_ADDR_OFFSET: usize = 12;
+pub const IP_DST_ADDR_OFFSET: usize = 16;
+pub const ETH_HEADER_LEN: usize = 14;
+pub const ETH_MAC_SRC_ADDR_OFFSET: usize = 6;
 pub const IP_ADDR_LEN: usize = 4;
+pub const MAC_ADDR_LEN: usize = 6;
 pub const IP_VERSION: u8 = 4;
 pub const OBF_ETHERTYPE: pnet::packet::ethernet::EtherType = pnet::packet::ethernet::EtherType(2049);
+
+// Usually this would be done with routing tables, but since I needed to send the packet back to its source for my test I hardcoded the wireguard address of Zurich
+pub const IP_NEXT_HOP: [u8;4] = [10, 7, 0 , 2];
 
 pub fn get_sorted_indices() -> Vec<usize> {
     // Gets sorted indices needed to match incoming packets and the corresponding queue index to choose
